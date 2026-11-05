@@ -1760,8 +1760,8 @@ export default function Planner() {
                   <p>
                     Includes the installed map’s 43,279 static blocked tiles, 90
                     city exclusion zones, and mud rules from the November 4
-                    cache. Server 802’s active season and live occupancy are not
-                    yet confirmed.
+                    cache. Server 802 is confirmed as S1. Live occupancy, event
+                    restrictions, and server map overrides remain unchecked.
                   </p>
                 </div>
                 <label class="field">
