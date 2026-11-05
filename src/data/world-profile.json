@@ -1,0 +1,803 @@
+{
+  "version": 2,
+  "referenceServer": 802,
+  "reviewDate": "2026-11-05",
+  "sourceSnapshotDate": "2026-11-04",
+  "coverage": "cached-normal-world-static",
+  "grid": {
+    "status": "client-source",
+    "width": 1000,
+    "height": 1000,
+    "coordinates": "odd-r",
+    "orientation": "pointy",
+    "minCoordinate": 0,
+    "maxCoordinate": 999,
+    "pointIdBase": 1,
+    "xDirection": "east",
+    "yDirection": "south",
+    "nativeHexRadius": 1.1547,
+    "nativeSqrt3": 1.7320508
+  },
+  "capital": {
+    "status": "client-table",
+    "id": 1,
+    "x": 500,
+    "y": 500
+  },
+  "footprints": {
+    "hq": {
+      "radius": 1,
+      "status": "cached-config-verified",
+      "configKey": "worldmap_city.k12",
+      "configValue": 3,
+      "radiusRule": "floor(k12 / 2)"
+    },
+    "food": {
+      "radius": 1,
+      "status": "client-table",
+      "buildIds": [
+        30000,
+        30001,
+        31000,
+        31001,
+        32000,
+        32001
+      ],
+      "configSize": 3,
+      "allowedTerrain": [
+        "grass"
+      ]
+    },
+    "wood": {
+      "radius": 1,
+      "status": "client-table",
+      "buildIds": [
+        20000,
+        20001,
+        21000,
+        21001,
+        22000,
+        22001
+      ],
+      "configSize": 3,
+      "allowedTerrain": [
+        "grass"
+      ]
+    }
+  },
+  "terrain": {
+    "verified": true,
+    "verificationScope": "cached-normal-world-static",
+    "currentServerApplicability": "unverified",
+    "staticPassabilityCoverage": 1,
+    "defaultClassification": "grass",
+    "mudRadius": 35,
+    "mudInnerExcludedRadius": 17,
+    "capitalRestrictedRadius": 17,
+    "otherCityRestrictedRadius": 3,
+    "missingConfigKeys": [],
+    "normalWorldScenario": "normal-s0",
+    "configSnapshotUTC": "2026-11-04T15:43:01Z",
+    "staticBlockedTileCount": 43279,
+    "cityCount": 90,
+    "exclusions": [
+      "Dynamic buildings and gathering occupancy",
+      "Seasonal and event restrictions",
+      "Current server season selection"
+    ],
+    "inferredCentralScenario": {
+      "status": "confirmed-by-cached-config",
+      "center": {
+        "x": 500,
+        "y": 500
+      },
+      "mudRadius": 35,
+      "capitalRestrictedRadius": 17,
+      "notes": [
+        "Original screenshot-inferred radii independently match the current cached DataConfig values.",
+        "This is a normal-world baseline; live server applicability remains unverified."
+      ],
+      "source": "output/svs-checkerboard-20261103/new-map-grid-calibration.json"
+    }
+  },
+  "teleport": {
+    "destinationMayOverlapOrigin": false,
+    "status": "client-source"
+  },
+  "march": {
+    "distanceMetric": "cube-max",
+    "timingVerified": false,
+    "missingConfigKeys": [
+      "wonder_rocky_ground.k2"
+    ],
+    "note": "Client follows supplied path point IDs and speed; hex distance alone does not certify route or duration."
+  },
+  "cities": [
+    {
+      "id": 1,
+      "x": 500,
+      "y": 500,
+      "level": 7,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 2,
+      "x": 48,
+      "y": 48,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 3,
+      "x": 131,
+      "y": 49,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 4,
+      "x": 230,
+      "y": 30,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 5,
+      "x": 371,
+      "y": 28,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 6,
+      "x": 531,
+      "y": 56,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 7,
+      "x": 620,
+      "y": 44,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 8,
+      "x": 753,
+      "y": 31,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 9,
+      "x": 937,
+      "y": 53,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 10,
+      "x": 49,
+      "y": 140,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 11,
+      "x": 230,
+      "y": 130,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 12,
+      "x": 330,
+      "y": 130,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 13,
+      "x": 430,
+      "y": 130,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 14,
+      "x": 661,
+      "y": 156,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 15,
+      "x": 738,
+      "y": 138,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 16,
+      "x": 850,
+      "y": 132,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 17,
+      "x": 30,
+      "y": 230,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 18,
+      "x": 138,
+      "y": 203,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 19,
+      "x": 930,
+      "y": 230,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 20,
+      "x": 36,
+      "y": 353,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 21,
+      "x": 130,
+      "y": 330,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 22,
+      "x": 849,
+      "y": 316,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 23,
+      "x": 930,
+      "y": 330,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 24,
+      "x": 97,
+      "y": 442,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 25,
+      "x": 832,
+      "y": 437,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 26,
+      "x": 930,
+      "y": 430,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 27,
+      "x": 130,
+      "y": 530,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 28,
+      "x": 945,
+      "y": 540,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 29,
+      "x": 37,
+      "y": 597,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 30,
+      "x": 130,
+      "y": 630,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 31,
+      "x": 887,
+      "y": 639,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 32,
+      "x": 58,
+      "y": 721,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 33,
+      "x": 953,
+      "y": 715,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 34,
+      "x": 52,
+      "y": 825,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 35,
+      "x": 132,
+      "y": 803,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 36,
+      "x": 347,
+      "y": 839,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 37,
+      "x": 446,
+      "y": 838,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 38,
+      "x": 610,
+      "y": 835,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 39,
+      "x": 812,
+      "y": 876,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 40,
+      "x": 940,
+      "y": 821,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 41,
+      "x": 31,
+      "y": 927,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 42,
+      "x": 130,
+      "y": 930,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 43,
+      "x": 311,
+      "y": 944,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 44,
+      "x": 445,
+      "y": 941,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 45,
+      "x": 612,
+      "y": 943,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 47,
+      "x": 917,
+      "y": 931,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 48,
+      "x": 226,
+      "y": 223,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 49,
+      "x": 324,
+      "y": 218,
+      "level": 3,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 50,
+      "x": 415,
+      "y": 229,
+      "level": 3,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 51,
+      "x": 505,
+      "y": 220,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 52,
+      "x": 592,
+      "y": 203,
+      "level": 3,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 53,
+      "x": 790,
+      "y": 220,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 54,
+      "x": 220,
+      "y": 315,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 55,
+      "x": 328,
+      "y": 349,
+      "level": 4,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 56,
+      "x": 440,
+      "y": 326,
+      "level": 5,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 57,
+      "x": 587,
+      "y": 322,
+      "level": 4,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 58,
+      "x": 695,
+      "y": 315,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 59,
+      "x": 774,
+      "y": 332,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 60,
+      "x": 220,
+      "y": 410,
+      "level": 3,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 62,
+      "x": 621,
+      "y": 421,
+      "level": 5,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 63,
+      "x": 704,
+      "y": 390,
+      "level": 3,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 64,
+      "x": 223,
+      "y": 520,
+      "level": 4,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 65,
+      "x": 310,
+      "y": 478,
+      "level": 5,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 66,
+      "x": 679,
+      "y": 511,
+      "level": 4,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 67,
+      "x": 770,
+      "y": 489,
+      "level": 3,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 68,
+      "x": 315,
+      "y": 616,
+      "level": 3,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 69,
+      "x": 410,
+      "y": 600,
+      "level": 4,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 70,
+      "x": 517,
+      "y": 618,
+      "level": 5,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 71,
+      "x": 676,
+      "y": 599,
+      "level": 4,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 72,
+      "x": 803,
+      "y": 604,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 73,
+      "x": 233,
+      "y": 682,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 74,
+      "x": 425,
+      "y": 692,
+      "level": 3,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 75,
+      "x": 513,
+      "y": 691,
+      "level": 4,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 76,
+      "x": 610,
+      "y": 709,
+      "level": 3,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 77,
+      "x": 705,
+      "y": 685,
+      "level": 3,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 78,
+      "x": 211,
+      "y": 784,
+      "level": 3,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 79,
+      "x": 313,
+      "y": 751,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 80,
+      "x": 387,
+      "y": 753,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 81,
+      "x": 524,
+      "y": 782,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 82,
+      "x": 711,
+      "y": 801,
+      "level": 2,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 100,
+      "x": 758,
+      "y": 955,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 84,
+      "x": 491,
+      "y": 417,
+      "level": 6,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 85,
+      "x": 424,
+      "y": 496,
+      "level": 6,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 86,
+      "x": 563,
+      "y": 529,
+      "level": 6,
+      "visualSizeParameter": 9
+    },
+    {
+      "id": 95,
+      "x": 228,
+      "y": 890,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 96,
+      "x": 534,
+      "y": 908,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 98,
+      "x": 805,
+      "y": 734,
+      "level": 1,
+      "visualSizeParameter": 7
+    },
+    {
+      "id": 101,
+      "x": 492,
+      "y": 516,
+      "level": 8,
+      "visualSizeParameter": 5
+    },
+    {
+      "id": 102,
+      "x": 492,
+      "y": 484,
+      "level": 8,
+      "visualSizeParameter": 5
+    },
+    {
+      "id": 103,
+      "x": 515,
+      "y": 499,
+      "level": 8,
+      "visualSizeParameter": 5
+    }
+  ],
+  "sources": {
+    "worldCityTable": {
+      "path": "decompiled/lua-extracted/runtime/datatable_config_luatxt_bf476705579f9482450e58b39ca8fd11-5e329976db94/-6909996846387651894_worldcity.bytes",
+      "sha256": "b7c9b43a5efdac36f7f7c38a1ca6a769424dffec2fe30ff3cffe7e650e7d05bf",
+      "currentCachedAssetSha256": "c5677d8985e1ea1a4c95c22821f697e191216888cccbefda1f017d75d38798c8",
+      "currentCachedGeometryMatched": true,
+      "note": "All four installed cache variants have identical current worldcity bytecode. All 90 id,location,level,size rows match the previously derived profile."
+    },
+    "allianceResourceBuildingTable": {
+      "path": "decompiled/lua-extracted/runtime/datatable_config_luatxt_bf476705579f9482450e58b39ca8fd11-5e329976db94/-5993232499407436980_alliance_res_build.bytes",
+      "sha256": "ff37dbddc64cfc8923269e120362c064c16f30a88bd1d3bf6fcf1cddac924c9f"
+    },
+    "hexGeometry": {
+      "path": "decompiled/lua-source/apk/l_base_all_d51745cc45eb22daa46118d3101f648c-a999e82e51eb/-8888347011999258074_Hex.lua",
+      "sha256": "a0f6df222d80a882cfe98de179137fc1a06cef4a7fd9f756263277c82d0030dd"
+    },
+    "worldConstants": {
+      "path": "decompiled/lua-source/apk/l_global_all_16ec42c9b96ace10210f28586b072c7d-ea4e12a8043e/-4208698031012135815_ConstDefine.lua",
+      "sha256": "6e58f2807360b7cd6b81b54cdc5616bc2cd7c253df3803a124b23fc724ad06a6"
+    },
+    "buildingPlacement": {
+      "path": "decompiled/lua-source/apk/slgengine_main_luatxt_util_all_07b7b79ca6bea8930bde47ef7e71891d-e876d5431ae2/6452791042244904499_WorldBuildUtil.lua",
+      "sha256": "290b4f96e3ab94a6565b68799944cb9fb31f38ab7025e851db93845d440b6aaf"
+    },
+    "allianceBuildingPlacement": {
+      "path": "decompiled/lua-source/apk/slgengine_main_luatxt_util_all_07b7b79ca6bea8930bde47ef7e71891d-e876d5431ae2/-808051369483386194_WorldAllianceBuildUtil.lua",
+      "sha256": "fa2fd2d53f82fbd634eaa5ed76de0521a13a7b282d43c34db21185c39375fa9b"
+    },
+    "cachedGlobalConfiguration": {
+      "guestPath": "/media/0/Android/data/com.readygo.barrel.gp/files/data_config.txt",
+      "sha256": "4d89124afc2bbcd5a4d4a4c55b919a04df9558824501630f5f4017e21c5320fa",
+      "mtimeUTC": "2026-11-04T15:43:01Z",
+      "method": "Read-only current QCOW2 mappings and ext4 path/inode lookup; no emulator commands."
+    },
+    "staticPassability": {
+      "asset": "Assets/Main/Scenes/WorldBlockIndex_S0.bytes",
+      "assetSha256": "6e58ebe22e83fcba5632f6887e32ca3ac3282641df885543792739765d5c171e",
+      "bundleSha256": "be6c98afe23841df4fa2024fa1abd6fd920059d358e10f33e36fd57b6e2c9303",
+      "installedBundleMatchedArchivedAsset": true,
+      "decodedBytes": 125000,
+      "bitOrder": "lsb-first",
+      "bitIndex": "pointId (not pointId - 1)",
+      "clientIndexGuard": "pointId < 1000000",
+      "artifact": "src/data/static-blocks-s0.json"
+    }
+  },
+  "currentServerApplicability": "unverified",
+  "allianceResources": {
+    "allowedTerrain": [
+      "grass"
+    ],
+    "markerRange": 50,
+    "markerRangeRule": "ceil((alliance_gather_config.k1 - 1) / 2)",
+    "markerConfigValue": 100,
+    "note": "Every footprint tile must fit inside the alliance rally or leader range; live marker position and occupancy remain required."
+  }
+}

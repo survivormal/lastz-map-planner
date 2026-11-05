@@ -1,0 +1,11 @@
+node_modules/
+.output/
+.nitro/
+.vinxi/
+.vite/
+.env
+.env.*
+!.env.example
+artifacts/
+.DS_Store
+*.tsbuildinfo

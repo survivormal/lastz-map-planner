@@ -1,0 +1,15 @@
+.git
+.github
+node_modules
+.output
+.vinxi
+.vite
+dist
+coverage
+test-results
+playwright-report
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
