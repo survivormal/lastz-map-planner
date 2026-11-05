@@ -20,10 +20,15 @@ test("legacy plans get an unanchored plot without changing existing assignments"
     showGraphic: false,
   });
   const { plotAnchor: _anchor, ...legacy } = plan;
-  const { plotGuide: _guide, ...settings } = legacy.settings;
+  const {
+    plotGuide: _guide,
+    showSafety: _safety,
+    ...settings
+  } = legacy.settings;
   const restored = PlanSchema.parse({ ...legacy, settings });
   assert.equal(restored.plotAnchor, null);
   assert.equal(restored.settings.plotGuide, true);
+  assert.equal(restored.settings.showSafety, true);
   assert.deepEqual(restored.placements, plan.placements);
   assert.equal(
     PlanSchema.safeParse({ ...plan, plotAnchor: { x: -1, y: 475 } }).success,
@@ -36,6 +41,7 @@ test("plot anchor, snapping preference and orientation survive JSON and shared p
   plan.plotAnchor = { x: 500, y: 475 };
   plan.settings.strategyId = "mud-tight";
   plan.settings.plotGuide = false;
+  plan.settings.showSafety = false;
   plan.settings.rotation = 2;
   plan.settings.mirrored = true;
   const serialized = serializePlan(plan);

@@ -47,6 +47,7 @@ import {
 } from "lucide-solid";
 import StrategyEditor from "../components/StrategyEditor";
 import FormationOrientation from "../components/FormationOrientation";
+import EdgeSafetyPanel from "../components/EdgeSafetyPanel";
 import WorldMap, {
   type MapTool,
   type MapApi,
@@ -58,7 +59,6 @@ import {
   validatePlacement,
   validateMove,
   generateFormation,
-  analyzeReplacement,
   footprint,
   footprintInBoundary,
   distance,
@@ -82,6 +82,9 @@ import {
   type FormationCluster,
   type PlotLattice,
   type Axial,
+  type TighteningSuggestion,
+  type TighteningSearchResult,
+  type PlacementSafetyAudit,
 } from "../domain";
 import {
   parsePlan,
@@ -93,6 +96,7 @@ import {
   parseShareFragment,
 } from "../domain/persistence";
 import { terrainLookup, PALACE } from "../data/terrain";
+import { createSafetyWorker } from "../domain/safety-worker";
 
 type Formation = "single" | "daisy" | "grass" | "mud";
 type Strategy = string;
@@ -185,9 +189,25 @@ export default function Planner() {
   const [fillPreview, setFillPreview] = createSignal<SmartFillResult | null>(
     null,
   );
-  const [risk, setRisk] = createSignal<ReturnType<
-    typeof analyzeReplacement
-  > | null>(null);
+  const [safetyReport, setSafetyReport] = createSignal<{
+    snapshot: Plan;
+    result: PlacementSafetyAudit;
+  } | null>(null);
+  const [safetyFailed, setSafetyFailed] = createSignal(false);
+  const [showOpenCenters, setShowOpenCenters] = createSignal(false);
+  const [tighteningSearch, setTighteningSearch] = createSignal<{
+    snapshot: Plan;
+    selectedId: string;
+    result: TighteningSearchResult;
+  } | null>(null);
+  const [tighteningPreview, setTighteningPreview] = createSignal<
+    TighteningSuggestion | undefined
+  >();
+  const [searchingEdges, setSearchingEdges] = createSignal(false);
+  const [applyingEdge, setApplyingEdge] = createSignal(false);
+  let edgeSearchGeneration = 0;
+  let edgeApplyGeneration = 0;
+  let safetyWorker: ReturnType<typeof createSafetyWorker> | undefined;
   const [notice, setNotice] = createSignal("");
   const [saved, setSaved] = createSignal("Local plan");
   const [ready, setReady] = createSignal(false);
@@ -223,6 +243,48 @@ export default function Planner() {
   const selectedPlacement = createMemo(() =>
     plan().placements.find((p) => p.id === selected()),
   );
+  const safetyAudit = createMemo(() =>
+    safetyReport()?.snapshot === plan() ? safetyReport()!.result : undefined,
+  );
+  const safetyChecking = () => ready() && !safetyAudit() && !safetyFailed();
+  const selectedSafety = createMemo(() =>
+    safetyAudit()?.entries.find((entry) => entry.placementId === selected()),
+  );
+  const risk = () => selectedSafety()?.analysis;
+  const activeTighteningSearch = createMemo(() => {
+    const search = tighteningSearch();
+    return search?.snapshot === plan() && search.selectedId === selected()
+      ? search.result
+      : undefined;
+  });
+  const safetyWarnings = createMemo(() => {
+    if (!plan().settings.showSafety) return [];
+    const placements = new Map(plan().placements.map((p) => [p.id, p]));
+    const invalid = new Set(planIssues().map((p) => p.id));
+    return (safetyAudit()?.entries ?? []).flatMap<{
+      tile: Placement;
+      kind: "two-fit" | "unknown";
+    }>((entry) => {
+      const tile = placements.get(entry.placementId);
+      if (!tile || invalid.has(entry.placementId)) return [];
+      return entry.analysis.risk === "two-fit"
+        ? [{ tile, kind: "two-fit" as const }]
+        : entry.confidence !== "known"
+          ? [{ tile, kind: "unknown" as const }]
+          : [];
+    });
+  });
+  const safetyStatus = () => {
+    if (safetyChecking()) return "Checking HQ edges…";
+    if (safetyFailed()) return "Edge check unavailable";
+    if (planIssues().length) return "Placement issues · review";
+    const counts = safetyAudit()?.summary;
+    if (counts?.twoFitCount)
+      return `${counts.twoFitCount} ${counts.provisionalCount ? "potential loss warnings" : "exposed HQs"} · review`;
+    if ((counts?.incompleteCount ?? 0) + (counts?.provisionalCount ?? 0))
+      return "Terrain incomplete · review";
+    return "No two-HQ losses detected";
+  };
   const selectedCluster = createMemo(() =>
     plan().clusters.find((c) => c.id === selectedPlacement()?.clusterId),
   );
@@ -322,7 +384,6 @@ export default function Planner() {
     setFuture([]);
     setPlan(parsed.data);
     setCanSave(true);
-    setRisk(null);
     setFillPreview(null);
     return true;
   }
@@ -332,7 +393,7 @@ export default function Planner() {
     setFuture((f) => [...f, plan()]);
     setPlan(stack[stack.length - 1]);
     setHistory(stack.slice(0, -1));
-    setRisk(null);
+    syncSelectedCoordinates();
     setFillPreview(null);
     setCanSave(true);
   }
@@ -342,7 +403,7 @@ export default function Planner() {
     setHistory((h) => [...h, plan()]);
     setPlan(stack[stack.length - 1]);
     setFuture(stack.slice(0, -1));
-    setRisk(null);
+    syncSelectedCoordinates();
     setFillPreview(null);
     setCanSave(true);
   }
@@ -354,8 +415,15 @@ export default function Planner() {
       p.settings[key] = value;
     });
   }
+  function syncSelectedCoordinates() {
+    const placement = selectedPlacement();
+    if (!placement) return;
+    setXInput(String(placement.x));
+    setYInput(String(placement.y));
+  }
   function useTool(value: MapTool) {
     setTool(value);
+    cancelEdgePreview();
     setPinnedPreview(null);
     setFillPreview(null);
     setDraft([]);
@@ -643,7 +711,6 @@ export default function Planner() {
     if (!inWorld(tile)) return;
     if (tool() === "select") {
       setSelected(p?.id ?? null);
-      setRisk(null);
       if (p) {
         setTab("inspect");
         setXInput(String(p.x));
@@ -807,19 +874,182 @@ export default function Planner() {
     setTool("select");
     setTab("inspect");
   }
-  function analyze() {
-    const target = selectedPlacement();
-    if (!target || target.kind !== "hq") return;
-    const issues = planIssues().find((v) => v.id === target.id);
-    if (issues) {
-      notify(issues.issues[0]);
+  function reviewNextEdge() {
+    cancelEdgePreview();
+    const entries = safetyAudit()?.entries ?? [];
+    const candidates = entries.filter(
+      (entry) =>
+        entry.analysis.risk === "two-fit" || entry.confidence !== "known",
+    );
+    const ids = planIssues().length
+      ? planIssues().map((issue) => issue.id)
+      : candidates.length
+        ? candidates.map((entry) => entry.placementId)
+        : plan()
+            .placements.filter((p) => p.kind === "hq")
+            .map((p) => p.id);
+    const index = ids.indexOf(selected() ?? "");
+    const target = plan().placements.find(
+      (p) => p.id === ids[(index + 1) % ids.length],
+    );
+    if (!target) return;
+    setSelected(target.id);
+    setTool("select");
+    setTab("inspect");
+    setMobilePanel(true);
+    setXInput(String(target.x));
+    setYInput(String(target.y));
+    map?.focus(target, 1.2);
+    requestAnimationFrame(() => {
+      const panel = document.querySelector<HTMLElement>(".side-panel");
+      const section = panel?.querySelector<HTMLElement>(".edge-safety-panel");
+      if (!panel || !section) return;
+      const tabsHeight =
+        panel.querySelector('[data-part="list"]')?.getBoundingClientRect()
+          .height ?? 50;
+      panel.scrollTo({
+        top:
+          panel.scrollTop +
+          section.getBoundingClientRect().top -
+          panel.getBoundingClientRect().top -
+          tabsHeight -
+          8,
+      });
+    });
+  }
+  function searchTightening() {
+    const snapshot = plan(),
+      selectedId = selected();
+    if (!selectedId || !risk() || planIssues().length) return;
+    const generation = ++edgeSearchGeneration;
+    setSearchingEdges(true);
+    cancelEdgePreview();
+    setTighteningSearch(null);
+    setTimeout(async () => {
+      if (generation !== edgeSearchGeneration) return;
+      try {
+        const result = await safetyWorker!.tighten(selectedId, snapshot);
+        if (
+          generation === edgeSearchGeneration &&
+          snapshot === plan() &&
+          selectedId === selected()
+        )
+          setTighteningSearch({ snapshot, selectedId, result });
+      } catch {
+        if (generation === edgeSearchGeneration)
+          notify("Could not compare edge adjustments. Your plan is unchanged.");
+      } finally {
+        if (generation === edgeSearchGeneration) setSearchingEdges(false);
+      }
+    }, 20);
+  }
+  function previewTightening(suggestion: TighteningSuggestion) {
+    if (
+      !activeTighteningSearch()?.suggestions.some(
+        (item) => item.id === suggestion.id,
+      )
+    )
+      return;
+    edgeApplyGeneration++;
+    setTighteningPreview(suggestion);
+    setFillPreview(null);
+    setPinnedPreview(null);
+    setTool("select");
+    map?.focus(suggestion.to, 1.2);
+  }
+  async function applyTightening() {
+    if (applyingEdge() || planIssues().length) return;
+    const proposal = tighteningPreview(),
+      search = tighteningSearch();
+    if (
+      !proposal ||
+      !search ||
+      search.snapshot !== plan() ||
+      search.selectedId !== selected()
+    ) {
+      setTighteningPreview(undefined);
+      notify("The plan changed. Find and preview an updated edge adjustment.");
       return;
     }
-    const result = analyzeReplacement(target, plan().placements, {
-      terrainAt: terrain().rules,
-      allowUnknown: plan().settings.allowUnknown,
+    const applicationGeneration = ++edgeApplyGeneration;
+    setApplyingEdge(true);
+    let fresh: TighteningSuggestion | undefined;
+    try {
+      fresh = (
+        await safetyWorker!.tighten(search.selectedId, search.snapshot)
+      ).suggestions.find((option) => option.id === proposal.id);
+    } catch {
+      if (applicationGeneration === edgeApplyGeneration)
+        notify("Could not recheck this adjustment. Your plan is unchanged.");
+      return;
+    } finally {
+      setApplyingEdge(false);
+    }
+    if (
+      applicationGeneration !== edgeApplyGeneration ||
+      search.snapshot !== plan() ||
+      search.selectedId !== selected() ||
+      tighteningPreview()?.id !== proposal.id
+    )
+      return;
+    if (
+      !fresh ||
+      fresh.beforeCount !== proposal.beforeCount ||
+      fresh.afterCount !== proposal.afterCount
+    ) {
+      setTighteningPreview(undefined);
+      notify("This adjustment no longer passes the check. Find a new preview.");
+      return;
+    }
+    const selectedGroup = selectedPlacement()?.groupId ?? activeGroup().id;
+    if (
+      !commit((p) => {
+        if (fresh.kind === "move") {
+          const moved = p.placements.find(
+            (placement) => placement.id === fresh.placementId,
+          )!;
+          moved.x = fresh.to.x;
+          moved.y = fresh.to.y;
+          delete moved.clusterId;
+        } else {
+          p.placements.push({
+            id: crypto.randomUUID(),
+            kind: "hq",
+            ...fresh.to,
+            name: `Edge HQ ${p.placements.length + 1}`,
+            groupId: selectedGroup,
+            showGraphic: false,
+          });
+        }
+      })
+    )
+      return;
+    const target = selectedPlacement();
+    if (target) {
+      setXInput(String(target.x));
+      setYInput(String(target.y));
+    }
+    notify(
+      `Edge adjustment applied: ${fresh.beforeCount} → ${fresh.afterCount} exposed HQs. Undo restores the plan.`,
+    );
+  }
+  function cancelEdgePreview() {
+    edgeApplyGeneration++;
+    setTighteningPreview(undefined);
+  }
+  function useTouchingPlacement() {
+    const target = selectedPlacement();
+    commit((p) => {
+      p.settings.strategyId = "regular";
+      p.settings.spacing = "tile";
+      p.settings.formation = "single";
     });
-    setRisk(result);
+    if (target) setGroup(target.groupId);
+    useTool("hq");
+    setTab("plan");
+    notify(
+      "Single HQ · touching spacing. Place a local infill; edge warnings will update.",
+    );
   }
   function readTypedTile(): Tile | null {
     const x = Number(xInput()),
@@ -898,6 +1128,12 @@ export default function Planner() {
     } else setShareStatus(r.error);
   }
   onMount(() => {
+    safetyWorker = createSafetyWorker();
+    onCleanup(() => {
+      edgeSearchGeneration++;
+      edgeApplyGeneration++;
+      safetyWorker?.dispose();
+    });
     const r = loadLocalPlan();
     if (r.ok && r.value) {
       setPlan(r.value);
@@ -938,7 +1174,6 @@ export default function Planner() {
       if (e.key === "Escape") {
         setPinnedPreview(null);
         setDraft([]);
-        setRisk(null);
         setTool("select");
         setSelected(null);
       }
@@ -969,6 +1204,35 @@ export default function Planner() {
       window.removeEventListener("keydown", key);
       clearTimeout(noticeTimer);
     });
+  });
+  createEffect(() => {
+    const snapshot = plan();
+    if (!ready()) return;
+    setSafetyFailed(false);
+    const timer = setTimeout(async () => {
+      try {
+        const result = await safetyWorker!.audit(snapshot);
+        if (snapshot === plan()) setSafetyReport({ snapshot, result });
+      } catch {
+        if (snapshot === plan()) {
+          setSafetyFailed(true);
+          notify(
+            "Edge checking could not finish. Edit or reload the plan to retry.",
+          );
+        }
+      }
+    }, 120);
+    onCleanup(() => clearTimeout(timer));
+  });
+  createEffect(() => {
+    plan();
+    selected();
+    edgeSearchGeneration++;
+    edgeApplyGeneration++;
+    setSearchingEdges(false);
+    setTighteningSearch(null);
+    setTighteningPreview(undefined);
+    setShowOpenCenters(false);
   });
   createEffect(() => {
     if (strategy() !== "regular" && !registry().get(strategy()))
@@ -1063,7 +1327,12 @@ export default function Planner() {
               plotTarget={plotTarget()?.tile}
               boundaryDraft={draft()}
               measure={measure()}
-              riskTiles={risk()?.witnessPair ?? []}
+              riskTiles={tighteningPreview() ? [] : (risk()?.witnessPair ?? [])}
+              safetyWarnings={safetyWarnings()}
+              existingOpenTiles={
+                showOpenCenters() ? (risk()?.existingOpen ?? []) : []
+              }
+              tighteningPreview={tighteningPreview()}
               onHover={(tile) => {
                 setHover(tile);
                 if (tile) setLastHover(tile);
@@ -1073,7 +1342,6 @@ export default function Planner() {
               onSelect={(id) => {
                 setSelected(id);
                 setTab("inspect");
-                setRisk(null);
                 setFillPreview(null);
               }}
               onMoveBoundary={(id, points) =>
@@ -1118,6 +1386,20 @@ export default function Planner() {
                   : "Unverified terrain ↗"}
               </button>
             </div>
+            <Show when={summary().hq}>
+              <button
+                class="map-safety-status"
+                classList={{
+                  "has-risk": Boolean(safetyAudit()?.summary.twoFitCount),
+                }}
+                disabled={safetyChecking()}
+                onClick={reviewNextEdge}
+              >
+                <Shield size={14} />
+                <span>{safetyStatus()}</span>
+                <ChevronRight size={14} />
+              </button>
+            </Show>
           </div>
           <div class="map-toolbar" aria-label="Map tools">
             <For each={tools}>
@@ -1319,6 +1601,28 @@ export default function Planner() {
               <Tabs.Trigger value="layers">Layers</Tabs.Trigger>
             </Tabs.List>
             <Tabs.Content value="plan">
+              <Show when={summary().hq}>
+                <div class="panel-section edge-overview">
+                  <Toggle
+                    label="Show HQ loss warnings"
+                    detail="Coral ! marks an HQ whose loss can open room for two enemies."
+                    checked={plan().settings.showSafety}
+                    onChange={(value) => setting("showSafety", value)}
+                  />
+                  <button
+                    class="button full subtle"
+                    onClick={reviewNextEdge}
+                    disabled={safetyChecking()}
+                  >
+                    <Shield size={15} />
+                    Review HQ edges
+                  </button>
+                  <p class="field-help">
+                    Checks all HQs, including the grass and restricted-mud
+                    edges. Local geometry; multiple losses are not modeled.
+                  </p>
+                </div>
+              </Show>
               <div class="panel-section">
                 <div class="section-label">
                   PLACEMENT STRATEGY
@@ -1336,7 +1640,11 @@ export default function Planner() {
                     <option value="mud-tight">Mud · optimized stagger</option>
                     <option value="grass-wide">Grass · wide stagger</option>
                     <For each={plan().strategies}>
-                      {(s) => <option value={s.id}>{s.name}</option>}
+                      {(s) => (
+                        <option value={s.id} selected={strategy() === s.id}>
+                          {s.name}
+                        </option>
+                      )}
                     </For>
                   </select>
                 </label>
@@ -1876,7 +2184,14 @@ export default function Planner() {
                           }
                         >
                           <For each={plan().groups}>
-                            {(g) => <option value={g.id}>{g.name}</option>}
+                            {(g) => (
+                              <option
+                                value={g.id}
+                                selected={g.id === p().groupId}
+                              >
+                                {g.name}
+                              </option>
+                            )}
                           </For>
                         </select>
                       </label>
@@ -2008,56 +2323,34 @@ export default function Planner() {
                       </div>
                     </Show>
                     <Show when={p().kind === "hq"}>
-                      <div class="panel-section">
-                        <div class="section-label">
-                          SINGLE-LOSS CHECK
-                          <Shield size={14} />
-                        </div>
-                        <p class="field-help">
-                          If this HQ is zeroed, can two non-overlapping enemy
-                          HQs use the newly opened space?
-                        </p>
-                        <button class="button full subtle" onClick={analyze}>
-                          <Shield size={15} />
-                          Check replacement risk
-                        </button>
-                        <Show when={risk()}>
-                          {(r) => (
-                            <div
-                              class={`risk-result ${r().risk === "two-fit" ? "risk-high" : ""}`}
-                            >
-                              <strong>
-                                {r().unknownTiles.length &&
-                                !plan().settings.allowUnknown
-                                  ? "Terrain incomplete"
-                                  : r().risk === "two-fit"
-                                    ? "Two HQs can fit"
-                                    : r().risk === "one-fit"
-                                      ? "One HQ fits the new opening"
-                                      : "No newly legal center"}
-                              </strong>
-                              <p>
-                                {r().newlyEnabled.length} newly opened centers ·{" "}
-                                {r().existingOpen.length} pre-existing nearby
-                                openings.
-                              </p>
-                              <Show when={r().witnessPair}>
-                                <p>
-                                  The orange footprints show a two-HQ witness.
-                                </p>
-                              </Show>
-                              <small>
-                                {plan().settings.allowUnknown
-                                  ? "Provisional terrain. "
-                                  : ""}
-                                Local geometry only. All other buildings remain.
-                                Outer gaps and multiple losses need separate
-                                review.
-                              </small>
-                            </div>
-                          )}
-                        </Show>
-                      </div>
+                      <EdgeSafetyPanel
+                        placement={p()}
+                        analysis={risk()}
+                        checking={safetyChecking()}
+                        failed={safetyFailed()}
+                        provisional={
+                          selectedSafety()?.confidence === "provisional"
+                        }
+                        invalid={planIssues().length > 0}
+                        showOpen={showOpenCenters()}
+                        onShowOpen={setShowOpenCenters}
+                        searching={searchingEdges()}
+                        applying={applyingEdge()}
+                        search={activeTighteningSearch()}
+                        preview={tighteningPreview()}
+                        placementName={(id) =>
+                          plan().placements.find((item) => item.id === id)
+                            ?.name ?? "HQ"
+                        }
+                        onSearch={searchTightening}
+                        onPreview={previewTightening}
+                        onCancel={cancelEdgePreview}
+                        onApply={applyTightening}
+                        onTouching={useTouchingPlacement}
+                        onCopy={(tile) =>
+                          void copy(coordinateToken(tile, plan().server))
+                        }
+                      />
                     </Show>
                     <div class="panel-section">
                       <div class="confidence-line">
@@ -2100,7 +2393,6 @@ export default function Planner() {
                           setSelected(p.id);
                           setXInput(String(p.x));
                           setYInput(String(p.y));
-                          setRisk(null);
                           map?.focus(p);
                         }}
                       >

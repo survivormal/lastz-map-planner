@@ -48,6 +48,9 @@ type Props = {
   boundaryDraft: Tile[];
   measure: Tile[];
   riskTiles: Tile[];
+  safetyWarnings?: { tile: Tile; kind: "two-fit" | "unknown" }[];
+  existingOpenTiles?: Tile[];
+  tighteningPreview?: { from?: Tile; to: Tile; kind: "move" | "infill" };
   plotGuide?: { anchor: Tile; basis: [Axial, Axial] };
   plotTarget?: Tile;
   onHover: (tile: Tile | null) => void;
@@ -80,6 +83,27 @@ const terrainRgb = [
   [41, 51, 52],
   [56, 46, 48],
 ];
+// Cancel shared edges once; each HQ has the same seven-tile outer silhouette.
+const HQ_OUTLINE = (() => {
+  const origin = worldToPixel({ x: 0, y: 0 });
+  const edges = new Map<string, [{ x: number; y: number }, { x: number; y: number }]>();
+  for (const cell of footprint({ x: 0, y: 0 })) {
+    const vertices = hexVertices(cell);
+    vertices.forEach((a, index) => {
+      const b = vertices[(index + 1) % vertices.length];
+      const key = [a, b]
+        .map((p) => `${Math.round(p.x * 1000)},${Math.round(p.y * 1000)}`)
+        .sort()
+        .join("|");
+      if (edges.has(key)) edges.delete(key);
+      else edges.set(key, [
+        { x: a.x - origin.x, y: a.y - origin.y },
+        { x: b.x - origin.x, y: b.y - origin.y },
+      ]);
+    });
+  }
+  return [...edges.values()];
+})();
 export default function WorldMap(props: Props) {
   let canvas!: HTMLCanvasElement;
   let width = 1,
@@ -268,6 +292,176 @@ export default function WorldMap(props: Props) {
       path(ctx, points(cell));
       ctx.fill();
       ctx.stroke();
+    }
+    ctx.restore();
+  }
+  function visiblePixel(pixel: { x: number; y: number }, margin = 80) {
+    const c = camera();
+    return (
+      Math.abs(pixel.x - c.x) <= width / c.zoom / 2 + TILE_RADIUS * 3 + margin / c.zoom &&
+      Math.abs(pixel.y - c.y) <= height / c.zoom / 2 + TILE_RADIUS * 3 + margin / c.zoom
+    );
+  }
+  function footprintOutline(
+    ctx: CanvasRenderingContext2D,
+    tile: Tile,
+    color: string,
+    lineWidth = 2,
+    dashed = false,
+    halo = false,
+  ) {
+    const p = worldToPixel(tile), z = camera().zoom;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if (dashed) ctx.setLineDash([5 / z, 4 / z]);
+    ctx.beginPath();
+    for (const [a, b] of HQ_OUTLINE) {
+      ctx.moveTo(p.x + a.x, p.y + a.y);
+      ctx.lineTo(p.x + b.x, p.y + b.y);
+    }
+    if (halo) {
+      ctx.strokeStyle = "#14201fe6";
+      ctx.lineWidth = (lineWidth + 2.5) / z;
+      ctx.stroke();
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth / z;
+    ctx.stroke();
+    ctx.restore();
+  }
+  function badge(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    y: number,
+    color: string,
+    radius = 8,
+  ) {
+    const z = camera().zoom;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(1 / z, 1 / z);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.fillStyle = "#14201f";
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.font = "700 11px system-ui";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 0, 0.5);
+    ctx.restore();
+  }
+  function drawSafetyOverlays(ctx: CanvasRenderingContext2D) {
+    const z = camera().zoom;
+    ctx.save();
+    // Already-open centers are deliberately dots, never proposed enemy footprints.
+    ctx.strokeStyle = "#e8c58caa";
+    ctx.lineWidth = 1.2 / z;
+    ctx.beginPath();
+    for (const tile of props.existingOpenTiles ?? []) {
+      const p = worldToPixel(tile);
+      if (!visiblePixel(p, 8)) continue;
+      const radius = (z < 0.4 ? 2 : 3) / z;
+      ctx.moveTo(p.x + radius, p.y);
+      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    }
+    ctx.stroke();
+    for (const warning of props.safetyWarnings ?? []) {
+      const p = worldToPixel(warning.tile);
+      if (!visiblePixel(p)) continue;
+      const risky = warning.kind === "two-fit";
+      if (z >= 0.4) {
+        footprintOutline(ctx, warning.tile, risky ? "#ff9b7d" : "#d8b77f88", risky ? 2.4 : 1.2, !risky, risky);
+        badge(ctx, risky ? "!" : "?", p.x + TILE_RADIUS * 1.8, p.y - TILE_RADIUS * 1.8, risky ? "#ffb194" : "#c7aa7f", risky ? 8 : 6);
+      } else if (risky) {
+        badge(ctx, "!", p.x, p.y, "#ffad8d", 6);
+      } else {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2.5 / z, 0, Math.PI * 2);
+        ctx.strokeStyle = "#c7aa7f99";
+        ctx.lineWidth = 1 / z;
+        ctx.stroke();
+      }
+    }
+    props.riskTiles.forEach((tile, index) => {
+      const p = worldToPixel(tile);
+      if (!visiblePixel(p)) return;
+      const color = index % 2 === 0 ? "#ffc19b" : "#e7b7ff";
+      const letter = index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
+      footprintOutline(ctx, tile, color, 2.5, index % 2 === 1, true);
+      if (z >= 0.4) {
+        label(ctx, `ENEMY ${letter}`, p.x, p.y - TILE_RADIUS * 2.5 - 12 / z, color);
+        badge(ctx, letter, p.x, p.y, color);
+      } else {
+        const x = p.x + (index % 2 === 0 ? -13 : 13) / z,
+          y = p.y - 18 / z;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(x, y);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1 / z;
+        ctx.stroke();
+        badge(ctx, letter, x, y, color);
+      }
+    });
+    ctx.restore();
+  }
+  function drawTighteningPreview(ctx: CanvasRenderingContext2D) {
+    const preview = props.tighteningPreview;
+    if (!preview) return;
+    const z = camera().zoom,
+      to = worldToPixel(preview.to),
+      fromTile = preview.kind === "move" ? preview.from : undefined,
+      from = fromTile ? worldToPixel(fromTile) : undefined;
+    const cyan = "#8de8ef";
+    ctx.save();
+    if (from && fromTile && visiblePixel(from)) {
+      footprintOutline(ctx, fromTile, "#8de8efa3", 1.8, true, true);
+      if (z >= 0.4) label(ctx, "FROM", from.x, from.y + TILE_RADIUS * 2.5 + 13 / z, "#b3e2e4");
+    }
+    if (visiblePixel(to)) {
+      if (z >= 0.4) drawFootprint(ctx, preview.to, cyan, 0.12);
+      footprintOutline(ctx, preview.to, cyan, 2.5, false, true);
+      if (z < 0.4) badge(ctx, "+", to.x, to.y, cyan, 7);
+      label(ctx, preview.kind === "infill" ? "INFILL PREVIEW" : "MOVE PREVIEW", to.x, to.y - Math.max(TILE_RADIUS * 2.5, 10 / z) - 14 / z, cyan);
+    }
+    if (from) {
+      const c = camera(),
+        left = c.x - width / z / 2,
+        right = c.x + width / z / 2,
+        top = c.y - height / z / 2,
+        bottom = c.y + height / z / 2;
+      if (Math.max(from.x, to.x) < left || Math.min(from.x, to.x) > right || Math.max(from.y, to.y) < top || Math.min(from.y, to.y) > bottom) {
+        ctx.restore();
+        return;
+      }
+      const dx = to.x - from.x, dy = to.y - from.y,
+        length = Math.hypot(dx, dy);
+      if (length > 1 / z) {
+        const ux = dx / length, uy = dy / length,
+          inset = Math.min(9 / z, length * 0.2),
+          tip = { x: to.x - ux * inset, y: to.y - uy * inset },
+          head = Math.min(8 / z, length * 0.3);
+        ctx.beginPath();
+        ctx.moveTo(from.x + ux * inset, from.y + uy * inset);
+        ctx.lineTo(tip.x, tip.y);
+        ctx.moveTo(tip.x - ux * head - uy * head * 0.55, tip.y - uy * head + ux * head * 0.55);
+        ctx.lineTo(tip.x, tip.y);
+        ctx.lineTo(tip.x - ux * head + uy * head * 0.55, tip.y - uy * head - ux * head * 0.55);
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = "#14201fe6";
+        ctx.lineWidth = 5 / z;
+        ctx.stroke();
+        ctx.strokeStyle = cyan;
+        ctx.lineWidth = 2 / z;
+        ctx.stroke();
+      }
     }
     ctx.restore();
   }
@@ -548,8 +742,7 @@ export default function WorldMap(props: Props) {
       if (props.plan.settings.showLabels && c.zoom > 0.52)
         label(ctx, p.name || "Unassigned", q.x, q.y + 43, color);
     }
-    for (const tile of props.riskTiles)
-      drawFootprint(ctx, tile, "#ffad91", 0.55, true);
+    drawSafetyOverlays(ctx);
     if (props.preview.length)
       for (const tile of props.preview)
         drawFootprint(
@@ -560,6 +753,7 @@ export default function WorldMap(props: Props) {
           true,
         );
     drawPlotTarget(ctx);
+    drawTighteningPreview(ctx);
     const draft = props.boundaryDraft.length
       ? props.boundaryDraft
       : props.measure;
@@ -1011,6 +1205,9 @@ export default function WorldMap(props: Props) {
     props.boundaryDraft;
     props.measure;
     props.riskTiles;
+    props.safetyWarnings;
+    props.existingOpenTiles;
+    props.tighteningPreview;
     props.plotGuide;
     props.plotTarget;
     props.terrainAt;

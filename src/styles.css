@@ -34,6 +34,150 @@
   color: #d8c492;
   font-variant-numeric: tabular-nums;
 }
+.map-safety-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  pointer-events: auto;
+  border: 1px solid #718576;
+  border-radius: 8px;
+  background: #17231ff2;
+  box-shadow: 0 3px 12px #0003;
+  color: #d5e4d2;
+  font-size: 11px;
+  text-align: left;
+}
+.map-safety-status.has-risk {
+  color: #ffd0bb;
+  border-color: #ba7961;
+  background: #392720f2;
+}
+.map-safety-status:disabled {
+  opacity: 0.8;
+}
+.edge-overview .toggle-row {
+  margin-top: 0;
+}
+.edge-overview .button {
+  margin-top: 12px;
+}
+.edge-safety-panel {
+  scroll-margin-top: 58px;
+}
+.edge-safety-panel .risk-result {
+  margin-top: 10px;
+}
+.risk-result.risk-incomplete {
+  border-color: #bca772;
+  background: #5b4b2522;
+}
+.risk-incomplete strong {
+  color: #ead6a5;
+}
+.edge-open-toggle {
+  gap: 12px;
+}
+.toggle-row {
+  position: relative;
+}
+.edge-open-toggle [data-part="control"] {
+  flex-shrink: 0;
+}
+.edge-tightening {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.edge-options {
+  display: grid;
+  gap: 8px;
+}
+.edge-option {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #4e625c;
+  border-radius: 8px;
+  background: #202d29;
+  text-align: left;
+  font-size: 12px;
+}
+.edge-option:hover {
+  background: #2b3c35;
+}
+.edge-option.active {
+  border-color: #8be7ed;
+  background: #204045;
+}
+.edge-option small {
+  font-size: 10px;
+  color: #b6c4bd;
+}
+.edge-reduction {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #e6d8b6;
+  font-size: 11px;
+}
+.edge-apply-card {
+  margin: 12px 0;
+  padding: 13px;
+  border: 1px solid #6bbec5;
+  border-radius: 8px;
+  background: #244b502e;
+}
+.edge-apply-card > strong {
+  font-size: 12px;
+  color: #a0f1f5;
+}
+.edge-apply-actions {
+  display: flex;
+  gap: 8px;
+}
+.edge-apply-actions .primary {
+  flex: 1;
+}
+.edge-apply-actions .button,
+.edge-apply-actions .icon-button {
+  min-height: 44px;
+  min-width: 44px;
+}
+.edge-tightening > .button:last-of-type {
+  margin-top: 12px;
+}
+.witness-coordinates {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+}
+.witness-coordinates .text-button {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #ffcd9f;
+  font-size: 11px;
+}
+.witness-coordinates .text-button:nth-child(2) {
+  color: #dec8ff;
+}
+@media (max-width: 800px) {
+  .map-safety-status {
+    min-height: 44px;
+    padding: 6px 10px;
+    font-size: 10px;
+  }
+  .map-heading:has(.map-safety-status) ~ .map-toolbar {
+    top: 154px;
+    max-height: calc(100% - 290px);
+  }
+}
 * {
   box-sizing: border-box;
 }
