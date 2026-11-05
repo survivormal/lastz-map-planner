@@ -12,6 +12,7 @@ import {
 } from "./geometry";
 import { validatePlacement, type TerrainLookup } from "./placement";
 import type { Placement, Spacing } from "./schema";
+import { orientVector } from "./orientation";
 import {
   CustomStrategySchema,
   StrategySchema,
@@ -146,10 +147,7 @@ export function createStrategyRegistry(custom: readonly Strategy[] = []) {
 }
 
 export function rotateStrategyVector(vector: Axial, rotation: number): Axial {
-  let { q, r } = vector;
-  for (let turn = 0; turn < ((rotation % 6) + 6) % 6; turn++)
-    [q, r] = [-r, q + r];
-  return { q, r };
+  return orientVector(vector, rotation);
 }
 
 export type SmartFillOptions = {
@@ -163,6 +161,7 @@ export type SmartFillOptions = {
   namePrefix?: string;
   kind?: Placement["kind"];
   allowUnknown?: boolean;
+  mirrored?: boolean;
   maxCandidates?: number;
   maxPlacements?: number;
   makeId?: () => string;
@@ -268,7 +267,7 @@ export function smartFillBoundary(options: SmartFillOptions): SmartFillResult {
     throw new RangeError("A plan can contain at most 5,000 placements.");
   const capacity = Math.min(maxPlacements, 5000 - options.placements.length);
   const [a, b] = strategy.basis.map((vector) =>
-    rotateStrategyVector(vector, strategy.rotation),
+    orientVector(vector, strategy.rotation, options.mirrored),
   );
   const determinant = a.q * b.r - a.r * b.q;
   const anchor = toAxial(options.anchor);

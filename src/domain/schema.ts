@@ -16,6 +16,7 @@ export const PlacementSchema = z.object({
   name,
   groupId: id,
   showGraphic: z.boolean().default(false),
+  clusterId: id.optional(),
 });
 export const GroupSchema = z.object({
   id,
@@ -34,6 +35,18 @@ export const BoundarySchema = z
     path: ["points"],
   });
 
+/** Snapshot the placement rules so a saved cluster survives changes to the strategy registry. */
+export const ClusterSchema = z.object({
+  id,
+  name,
+  kind: z.enum(["daisy", "grass", "mud"]),
+  anchor: TileSchema,
+  rotation: z.number().int().min(0).max(5).default(0),
+  mirrored: z.boolean().default(false),
+  minGap: z.number().int().min(0).max(10),
+  terrain: z.enum(["any", "grass", "mud"]),
+});
+
 export const PlanSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -43,6 +56,7 @@ export const PlanSchema = z
     allianceAnchor: TileSchema.nullable().default(null),
     allianceAnchorKind: AllianceAnchorKindSchema.default("leader"),
     placements: z.array(PlacementSchema).max(5000),
+    clusters: z.array(ClusterSchema).max(5000).default([]),
     groups: z.array(GroupSchema).min(1).max(100),
     boundaries: z.array(BoundarySchema).max(200),
     terrainOverrides: z
@@ -57,6 +71,7 @@ export const PlanSchema = z
       strategyId: z.string().max(80).default("regular"),
       formation: z.enum(["single", "daisy", "grass", "mud"]).default("single"),
       rotation: z.number().int().min(0).max(5).default(0),
+      mirrored: z.boolean().default(false),
       showGrid: z.boolean(),
       showLabels: z.boolean(),
       showGraphics: z.boolean(),
@@ -69,6 +84,7 @@ export const PlanSchema = z
       "groups",
       "boundaries",
       "strategies",
+      "clusters",
     ] as const) {
       const seen = new Set<string>();
       plan[field].forEach((item, index) => {
@@ -82,12 +98,19 @@ export const PlanSchema = z
       });
     }
     const groups = new Set(plan.groups.map((group) => group.id));
+    const clusters = new Set(plan.clusters.map((cluster) => cluster.id));
     plan.placements.forEach((placement, index) => {
       if (!groups.has(placement.groupId))
         ctx.addIssue({
           code: "custom",
           message: "Placement refers to a missing group.",
           path: ["placements", index, "groupId"],
+        });
+      if (placement.clusterId && !clusters.has(placement.clusterId))
+        ctx.addIssue({
+          code: "custom",
+          message: "Placement refers to a missing cluster.",
+          path: ["placements", index, "clusterId"],
         });
     });
     const terrainCells = new Set<string>();
@@ -107,6 +130,8 @@ export type Plan = z.infer<typeof PlanSchema>;
 export type Placement = z.infer<typeof PlacementSchema>;
 export type Group = z.infer<typeof GroupSchema>;
 export type Boundary = z.infer<typeof BoundarySchema>;
+export type Cluster = z.infer<typeof ClusterSchema>;
+export type FormationCluster = Cluster;
 export type Terrain = z.infer<typeof TerrainSchema>;
 export type Spacing = z.infer<typeof SpacingSchema>;
 export type AllianceAnchorKind = z.infer<typeof AllianceAnchorKindSchema>;
@@ -120,6 +145,7 @@ export function createPlan(planName = "Server 802 · SVS plan"): Plan {
     allianceAnchor: null,
     allianceAnchorKind: "leader",
     placements: [],
+    clusters: [],
     groups: [
       { id: "daisy", name: "Daisy Group", color: "#b5a0f5" },
       { id: "grass", name: "Grass Group", color: "#7dd3a8" },
@@ -134,6 +160,7 @@ export function createPlan(planName = "Server 802 · SVS plan"): Plan {
       strategyId: "regular",
       formation: "single",
       rotation: 0,
+      mirrored: false,
       showGrid: true,
       showLabels: true,
       showGraphics: false,

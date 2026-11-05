@@ -46,6 +46,7 @@ import {
   Menu,
 } from "lucide-solid";
 import StrategyEditor from "../components/StrategyEditor";
+import FormationOrientation from "../components/FormationOrientation";
 import WorldMap, {
   type MapTool,
   type MapApi,
@@ -67,6 +68,8 @@ import {
   regularStrategy,
   smartFillBoundary,
   offset,
+  orientVector,
+  transformCluster,
   rotateStrategyVector,
   type SmartFillResult,
   type Plan,
@@ -74,6 +77,7 @@ import {
   type Tile,
   type Terrain,
   type Spacing,
+  type FormationCluster,
 } from "../domain";
 import {
   parsePlan,
@@ -166,11 +170,10 @@ export default function Planner() {
       p.settings.strategyId = value;
     });
   const rotation = () => plan().settings.rotation;
-  const setRotation = (value: number) =>
-    commit((p) => {
-      p.settings.rotation = value;
-    });
+  const mirrored = () => plan().settings.mirrored;
   const [hover, setHover] = createSignal<Tile | null>(null);
+  const [lastHover, setLastHover] = createSignal<Tile | null>(null);
+  const [pinnedPreview, setPinnedPreview] = createSignal<Tile | null>(null);
   const [camera, setCamera] = createSignal<Camera>({ x: 0, y: 0, zoom: 1 });
   const [tab, setTab] = createSignal("plan");
   const [draft, setDraft] = createSignal<Tile[]>([]);
@@ -215,6 +218,14 @@ export default function Planner() {
   );
   const selectedPlacement = createMemo(() =>
     plan().placements.find((p) => p.id === selected()),
+  );
+  const selectedCluster = createMemo(() =>
+    plan().clusters.find((c) => c.id === selectedPlacement()?.clusterId),
+  );
+  const clusterMembers = createMemo(() =>
+    selectedCluster()
+      ? plan().placements.filter((p) => p.clusterId === selectedCluster()!.id)
+      : [],
   );
   const selectedBoundary = createMemo(() =>
     plan().boundaries.find((p) => p.id === selected()),
@@ -294,6 +305,7 @@ export default function Planner() {
   }
   function useTool(value: MapTool) {
     setTool(value);
+    setPinnedPreview(null);
     setFillPreview(null);
     setDraft([]);
     if (value !== "measure") setMeasure([]);
@@ -307,17 +319,22 @@ export default function Planner() {
     });
     setSelected(null);
   }
-  function candidateTiles(tile: Tile) {
-    if (formation() === "single" || tool() !== "hq") return [tile];
-    if (strategy() === "regular")
+  function formationTiles(tile: Tile) {
+    if (formation() === "single") return [tile];
+    if (strategy() === "regular") {
       return generateFormation(
         formation() as "daisy" | "grass" | "mud",
         tile,
         effectiveSpacing(),
-        { rotation: rotation() },
+        { rotation: rotation(), mirrored: mirrored() },
       );
+    }
     const [a, b] = activeStrategy().basis.map((v) =>
-      rotateStrategyVector(v, (activeStrategy().rotation + rotation()) % 6),
+      orientVector(
+        rotateStrategyVector(v, activeStrategy().rotation),
+        rotation(),
+        mirrored(),
+      ),
     );
     const vectors =
       formation() === "daisy"
@@ -335,6 +352,106 @@ export default function Planner() {
             r: (i % 4) * a.r + Math.floor(i / 4) * b.r,
           }));
     return vectors.map((v) => offset(tile, v));
+  }
+  function candidateTiles(tile: Tile) {
+    return tool() === "hq" ? formationTiles(tile) : [tile];
+  }
+  const orientationAnchor = { x: 500, y: 500 };
+  function orientPreset(turns = 0, flip = false, reset = false) {
+    const anchor =
+      hover() ?? lastHover() ?? readTypedTile() ?? orientationAnchor;
+    commit((p) => {
+      p.settings.rotation = reset ? 0 : (p.settings.rotation + turns + 6) % 6;
+      p.settings.mirrored = reset
+        ? false
+        : flip
+          ? !p.settings.mirrored
+          : p.settings.mirrored;
+    });
+    useTool("hq");
+    setPinnedPreview(anchor);
+  }
+  function clusterRecord(anchor: Tile): FormationCluster {
+    return {
+      id: crypto.randomUUID(),
+      name:
+        formation() === "daisy"
+          ? "Daisy cluster"
+          : formation() === "grass"
+            ? "Grass cluster"
+            : "Mud cluster",
+      kind: formation() as "daisy" | "grass" | "mud",
+      anchor: { ...anchor },
+      rotation: rotation(),
+      mirrored: mirrored(),
+      minGap: activeStrategy().minGap,
+      terrain: activeStrategy().terrain,
+    };
+  }
+  const matchingLegacyPreset = createMemo(() => {
+    const p = selectedPlacement();
+    if (!p || p.kind !== "hq" || p.clusterId || formation() === "single")
+      return [];
+    const expected = formationTiles(p);
+    const matches = expected.map((tile) =>
+      plan().placements.find(
+        (other) =>
+          other.kind === "hq" &&
+          !other.clusterId &&
+          other.groupId === p.groupId &&
+          other.x === tile.x &&
+          other.y === tile.y,
+      ),
+    );
+    return matches.every((match) => match !== undefined)
+      ? (matches as Placement[])
+      : [];
+  });
+  function linkLegacyPreset() {
+    const members = matchingLegacyPreset(),
+      anchor = selectedPlacement();
+    if (!members.length || !anchor) return;
+    const cluster = clusterRecord(anchor),
+      ids = new Set(members.map((p) => p.id));
+    commit((p) => {
+      p.clusters.push(cluster);
+      for (const placement of p.placements)
+        if (ids.has(placement.id)) placement.clusterId = cluster.id;
+    });
+    notify(
+      `Linked ${members.length} HQs. You can now rotate this cluster together.`,
+    );
+  }
+  function orientPlacedCluster(turns = 0, flip = false, reset = false) {
+    const cluster = selectedCluster();
+    if (!cluster) return;
+    const result = transformCluster(
+      plan(),
+      cluster.id,
+      {
+        turns: reset ? -cluster.rotation : turns,
+        flip: reset ? cluster.mirrored : flip,
+      },
+      terrain().rules,
+    );
+    if (!result.valid || !result.cluster) {
+      notify(result.issues[0] ?? "This cluster cannot be rotated here.");
+      return;
+    }
+    commit((p) => {
+      p.placements = result.placements;
+      p.clusters = p.clusters.map((c) =>
+        c.id === cluster.id ? result.cluster! : c,
+      );
+    });
+    const moved = selectedPlacement();
+    if (moved) {
+      setXInput(String(moved.x));
+      setYInput(String(moved.y));
+    }
+    notify(
+      `${cluster.name} ${flip ? "flipped" : reset ? "reset" : "rotated"}. Assignments stay with their HQs.`,
+    );
   }
   function candidate(tile: Tile, index = 0): Placement {
     return {
@@ -372,8 +489,8 @@ export default function Planner() {
     return [...new Set(issues)];
   }
   const preview = createMemo(() =>
-    hover() && ["hq", "food", "wood"].includes(tool())
-      ? candidateTiles(hover()!)
+    (hover() ?? pinnedPreview()) && ["hq", "food", "wood"].includes(tool())
+      ? candidateTiles((hover() ?? pinnedPreview())!)
       : [],
   );
   const previewIssues = createMemo(() =>
@@ -386,8 +503,17 @@ export default function Planner() {
       notify(issues[0]);
       return;
     }
-    const added = tiles.map((v, i) => candidate(v, i));
-    commit((p) => p.placements.push(...added));
+    const cluster =
+      tool() === "hq" && formation() !== "single" ? clusterRecord(tile) : null;
+    const added = tiles.map((v, i) => ({
+      ...candidate(v, i),
+      ...(cluster ? { clusterId: cluster.id } : {}),
+    }));
+    commit((p) => {
+      p.placements.push(...added);
+      if (cluster) p.clusters.push(cluster);
+    });
+    setPinnedPreview(null);
     setSelected(added[0].id);
     notify(
       `${added.length === 1 ? "Position" : `${added.length} positions`} added to ${activeGroup().name}.`,
@@ -482,8 +608,12 @@ export default function Planner() {
       boundary: boundary.points,
       strategy: {
         ...activeStrategy(),
-        rotation: (activeStrategy().rotation + rotation()) % 6,
+        // Mirroring reverses the strategy's own rotation before the user turn.
+        rotation:
+          (rotation() + (mirrored() ? -1 : 1) * activeStrategy().rotation + 6) %
+          6,
       },
+      mirrored: mirrored(),
       placements: plan().placements,
       terrainAt: terrain().rules,
       groupId: activeGroup().id,
@@ -571,7 +701,7 @@ export default function Planner() {
     });
     setRisk(result);
   }
-  function typedTile(): Tile | null {
+  function readTypedTile(): Tile | null {
     const x = Number(xInput()),
       y = Number(yInput());
     if (
@@ -579,10 +709,14 @@ export default function Planner() {
       !/^\d+$/.test(yInput()) ||
       !inWorld({ x, y })
     ) {
-      notify("Enter whole coordinates from 0 to 999.");
       return null;
     }
     return { x, y };
+  }
+  function typedTile(): Tile | null {
+    const tile = readTypedTile();
+    if (!tile) notify("Enter whole coordinates from 0 to 999.");
+    return tile;
   }
   async function copy(text: string) {
     try {
@@ -682,6 +816,7 @@ export default function Planner() {
         return;
       }
       if (e.key === "Escape") {
+        setPinnedPreview(null);
         setDraft([]);
         setRisk(null);
         setTool("select");
@@ -692,6 +827,18 @@ export default function Planner() {
         deleteSelected();
       }
       if (e.key === "Enter" && tool() === "boundary") finishBoundary(true);
+      if (
+        e.key.toLowerCase() === "r" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        tool() === "hq" &&
+        formation() !== "single"
+      ) {
+        e.preventDefault();
+        orientPreset(e.shiftKey ? -1 : 1);
+        return;
+      }
       const found = tools.find(
         (t) => t.key.toLowerCase() === e.key.toLowerCase(),
       );
@@ -714,6 +861,7 @@ export default function Planner() {
     formation();
     group();
     rotation();
+    mirrored();
     setFillPreview(null);
   });
   createEffect(() => {
@@ -794,7 +942,10 @@ export default function Planner() {
               boundaryDraft={draft()}
               measure={measure()}
               riskTiles={risk()?.witnessPair ?? []}
-              onHover={setHover}
+              onHover={(tile) => {
+                setHover(tile);
+                if (tile) setLastHover(tile);
+              }}
               onClick={clickMap}
               onMove={move}
               onSelect={(id) => {
@@ -1127,13 +1278,25 @@ export default function Planner() {
                   </select>
                 </label>
                 <Show when={formation() !== "single"}>
-                  <button
-                    class="button full subtle"
-                    onClick={() => setRotation((rotation() + 1) % 6)}
-                  >
-                    <MoveUpRight size={15} />
-                    Rotate formation · {rotation() * 60}°
-                  </button>
+                  <FormationOrientation
+                    scope="preset"
+                    tiles={formationTiles(orientationAnchor)}
+                    anchor={orientationAnchor}
+                    rotation={rotation()}
+                    mirrored={mirrored()}
+                    symmetric={
+                      formation() === "daisy" &&
+                      (strategy() === "regular" ||
+                        strategy() === "mud-tight" ||
+                        strategy() === "grass-wide")
+                    }
+                    onRotate={(turns) => orientPreset(turns)}
+                    onFlip={() => orientPreset(0, true)}
+                    onReset={() => orientPreset(0, false, true)}
+                  />
+                  <p class="field-help">
+                    Over the map: R rotates clockwise; Shift+R rotates back.
+                  </p>
                 </Show>
                 <div class="footprint-note">
                   <span class="seven-dot">⬡</span>
@@ -1535,6 +1698,62 @@ export default function Planner() {
                         }
                       />
                     </div>
+                    <Show when={selectedCluster()}>
+                      {(cluster) => (
+                        <div class="panel-section">
+                          <div class="section-label">
+                            FORMATION CLUSTER{" "}
+                            <span class="pill">
+                              {clusterMembers().length} HQs
+                            </span>
+                          </div>
+                          <p class="field-help">
+                            Rotate all highlighted HQs around X:
+                            {cluster().anchor.x} Y:{cluster().anchor.y}. Terrain
+                            and spacing are checked before the move.
+                          </p>
+                          <FormationOrientation
+                            scope="cluster"
+                            tiles={clusterMembers()}
+                            anchor={cluster().anchor}
+                            rotation={cluster().rotation}
+                            mirrored={cluster().mirrored}
+                            onRotate={(turns) => orientPlacedCluster(turns)}
+                            onFlip={() => orientPlacedCluster(0, true)}
+                            onReset={() => orientPlacedCluster(0, false, true)}
+                          />
+                          <p class="field-help">
+                            Assignments rotate with their HQs. Undo restores the
+                            previous arrangement.
+                          </p>
+                        </div>
+                      )}
+                    </Show>
+                    <Show
+                      when={
+                        p().kind === "hq" &&
+                        !p().clusterId &&
+                        formation() !== "single"
+                      }
+                    >
+                      <div class="panel-section">
+                        <div class="section-label">LINK AN EXISTING PRESET</div>
+                        <p class="field-help">
+                          For older plans, select the preset’s anchor HQ and its
+                          matching pattern in Build.
+                        </p>
+                        <button
+                          class="button full subtle"
+                          disabled={!matchingLegacyPreset().length}
+                          onClick={linkLegacyPreset}
+                        >
+                          <Layers size={15} />
+                          {matchingLegacyPreset().length
+                            ? `Link these ${matchingLegacyPreset().length} HQs`
+                            : "No matching preset at this HQ"}
+                        </button>
+                      </div>
+                    </Show>
                     <Show when={p().kind === "hq"}>
                       <div class="panel-section">
                         <div class="section-label">

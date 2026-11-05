@@ -326,7 +326,9 @@ export default function WorldMap(props: Props) {
       ctx.stroke();
       ctx.setLineDash([]);
       const reserved =
-        props.plan.allianceAnchorKind === "rally" ? [anchor] : footprint(anchor);
+        props.plan.allianceAnchorKind === "rally"
+          ? [anchor]
+          : footprint(anchor);
       for (const tile of reserved) {
         path(ctx, hexVertices(tile));
         ctx.fillStyle = "#d8e6ae22";
@@ -377,6 +379,9 @@ export default function WorldMap(props: Props) {
           ctx.stroke();
         }
     }
+    const selectedClusterId = props.plan.placements.find(
+      (p) => p.id === props.selectedId,
+    )?.clusterId;
     for (const p of props.plan.placements) {
       const tile = pointer?.placement?.id === p.id && dragTile ? dragTile : p;
       const pixel = worldToPixel(tile);
@@ -386,9 +391,12 @@ export default function WorldMap(props: Props) {
       )
         continue;
       const color = groupColor(p.groupId);
-      drawFootprint(ctx, tile, color, p.id === props.selectedId ? 0.78 : 0.52);
+      const selected =
+        p.id === props.selectedId ||
+        Boolean(selectedClusterId && p.clusterId === selectedClusterId);
+      drawFootprint(ctx, tile, color, selected ? 0.78 : 0.52);
       const q = worldToPixel(tile);
-      if (p.id === props.selectedId) {
+      if (selected) {
         ctx.strokeStyle = "#f5f7dd";
         ctx.lineWidth = 2 / c.zoom;
         for (const t of footprint(tile)) {

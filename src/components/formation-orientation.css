@@ -1,0 +1,128 @@
+.formation-orientation {
+  min-width: 0;
+  margin: 14px 0 0;
+  padding: 0;
+  border: 0;
+}
+.formation-orientation legend {
+  padding: 0;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.formation-orientation-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+.formation-orientation-badge {
+  flex-shrink: 0;
+  border: 1px solid #c4eca62e;
+  border-radius: 5px;
+  background: #c4eca60c;
+  padding: 3px 6px;
+  color: var(--accent);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.formation-orientation-preview {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #111b19;
+  padding: 8px 18px;
+}
+.formation-orientation-preview > svg {
+  display: block;
+  width: 100%;
+  height: 126px;
+}
+.formation-orientation-grid {
+  fill: none;
+  stroke: #728d7b;
+  stroke-width: 0.6px;
+  opacity: 0.18;
+}
+.formation-orientation-hq polygon {
+  fill: #607f91;
+  stroke: #9bc5de;
+  stroke-width: 0.85px;
+}
+.formation-orientation-hq.is-anchor polygon {
+  fill: #7395a9;
+  stroke: #d1e6ee;
+}
+.formation-orientation-anchor {
+  fill: var(--accent);
+  stroke: #162219;
+  stroke-width: 1.5px;
+}
+.formation-orientation-north {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: #aebfb1;
+  font-size: 9px;
+  letter-spacing: 0.3px;
+  pointer-events: none;
+}
+.formation-orientation-controls {
+  display: grid;
+  grid-template-columns: 46px 46px minmax(0, 1fr) 46px;
+  gap: 6px;
+  margin-top: 8px;
+}
+.formation-orientation-controls > button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 10px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.formation-orientation-controls > button[aria-pressed="true"] {
+  border-color: #b7dc8c;
+  background: #c4eca620;
+  color: var(--accent);
+}
+.formation-orientation-controls > button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.formation-orientation-help {
+  margin: 8px 0 0;
+  color: #b3c0b6;
+  font-size: 10px;
+  line-height: 1.6;
+}
+@media (hover: hover) and (pointer: fine) {
+  .formation-orientation-controls > button:hover:not(:disabled) {
+    background: #354438;
+    color: #e9f3e0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .formation-orientation-controls > button {
+    transition:
+      background-color 130ms ease-out,
+      color 130ms ease-out;
+  }
+  .formation-orientation-controls > button:active:not(:disabled) {
+    transform: none;
+  }
+}

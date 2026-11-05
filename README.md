@@ -22,7 +22,8 @@ Open [localhost:3100](http://127.0.0.1:3100). Production: `npm run build` then `
 - Select, pan and zoom across the entire world; all placements snap to integer world coordinates.
 - Place seven-tile HQs and alliance Food/Wood blockers. Name assignments and organize color-coded groups.
 - Use standard spacing (touching, one empty tile, two empty tiles), Mud optimized stagger `(3,1)`, or Grass wide stagger `(3,2)`.
-- Stamp a single HQ, a seven-HQ Daisy, or a 3×4 group. Rotate patterns in 60° steps.
+- Stamp a single HQ, a seven-HQ Daisy, or a 3×4 group. **Build → Preset orientation** previews clockwise/counterclockwise 60° turns and mirrored stagger directions. All centers stay on exact hex coordinates; use `R` / `Shift+R` over the map to turn the placement preview.
+- Select any HQ in a placed preset, then use **Inspect → Cluster orientation** to rotate or flip the whole cluster around its saved anchor. Assignments rotate with their HQs; terrain, world bounds, outside buildings and the cluster's original spacing rules are checked atomically. Undo restores the previous arrangement. Individual edits and deletions retain the remaining cluster members.
 - Draw closed wedges or open boundaries; move boundaries, drag vertices, rename or erase them.
 - Preview a strategy-based fill of a wedge. Every proposed footprint must fit inside the polygon, clear terrain and existing placements, and meet the strategy gap. Review then apply; large fills are explicitly capped.
 - Define new reusable strategies through **Manage strategies**, with integer basis vectors, terrain constraints and gaps. Clone presets, edit custom patterns, and import/export validated configurations. No executable strategy code is accepted.
@@ -32,6 +33,8 @@ Open [localhost:3100](http://127.0.0.1:3100). Production: `npm run build` then `
 - Plans autosave to this browser. Import and editing support undo/redo. Export JSON for durable backups.
 
 In **Layers**, map individual terrain tiles from in-game evidence. Alternatively, select the standard Season 1 profile to use the decoded baseline, or an unverified/custom profile for manual mapping. Food/Wood must remain off mud; set an alliance leader/rally marker in Layers to enforce the 50-step range for every Food/Wood tile. Choose the marker type to reserve the leader’s seven-tile footprint or the rally point’s single tile. Use the active rally point when one exists; it takes precedence over the leader in game. The measurement tool shows hex distance, not march time.
+
+A complete Daisy repeats its occupied shape every 60°. Rotating a placed Daisy still moves its named assignments around the ring; **Flip stagger** changes the slant of Mud/Grass stagger patterns. Older plans remain compatible: select a preset's anchor HQ, choose its original pattern/formation/orientation in Build, then use **Inspect → Link these HQs** when the matching arrangement is found. This links only the matching unlinked HQs in the selected HQ's group. Smart-filled wedges remain individual placements rather than a preset cluster.
 
 Keyboard: `V` select, `H` pan, `B` HQ, `F` food, `W` wood, `L` boundary, `M` measure, `T` terrain, `E` erase, `Space`+drag pan, `Enter` close a wedge, `Escape` cancel, `Delete` remove selection, `⌘/Ctrl+Z` undo, `⇧⌘/Ctrl+Z` redo. Coordinates can also be entered without pointing at the map.
 
