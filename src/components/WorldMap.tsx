@@ -339,15 +339,6 @@ export default function WorldMap(props: Props) {
       ctx.arc(p.x, p.y, 5 / c.zoom, 0, Math.PI * 2);
       ctx.fillStyle = "#d8e6ae";
       ctx.fill();
-      label(
-        ctx,
-        props.plan.allianceAnchorKind === "rally" ? "RALLY POINT" : "ALLIANCE LEADER",
-        p.x,
-        p.y -
-          (props.plan.allianceAnchorKind === "rally" ? TILE_RADIUS : TILE_RADIUS * 2.5) -
-          9 / c.zoom,
-        "#d8e6ae",
-      );
     }
     for (const boundary of props.plan.boundaries) {
       const vertices =
@@ -459,6 +450,17 @@ export default function WorldMap(props: Props) {
         ctx.fillStyle = "#e5eab3";
         ctx.fill();
       }
+    }
+    if (props.plan.allianceAnchor) {
+      const p = worldToPixel(props.plan.allianceAnchor);
+      const rally = props.plan.allianceAnchorKind === "rally";
+      label(
+        ctx,
+        rally ? "RALLY POINT" : "ALLIANCE LEADER",
+        p.x,
+        p.y - (rally ? TILE_RADIUS : TILE_RADIUS * 2.5) - 9 / c.zoom,
+        "#d8e6ae",
+      );
     }
     const palace = worldToPixel({ x: 500, y: 500 });
     if (

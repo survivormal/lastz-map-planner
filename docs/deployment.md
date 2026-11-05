@@ -2,6 +2,10 @@
 
 This project is a standalone Git repository. Its GitHub repository is `survivormal/lastz-map-planner`. The deployment target is Northflank team **LastZ**, project **Map Planner**, service **lastz-map-planner**. The service uses the root Dockerfile and release branch `main`. No runtime secrets are required.
 
+Production: [LastZ Fieldwork](https://p01--lastz-map-planner--clx6wvzz4h7r.code.run/). First deployed November 5, 2026. [Northflank service](https://app.northflank.com/t/lastz/project/map-planner/services/lastz-map-planner) has CI and CD enabled for `main`; its HTTP readiness check uses `/api/health` on port 3000.
+
+The approved runtime is one `nf-compute-20` instance (0.2 shared vCPU, 512 MB) at $5.40/month, with autoscaling disabled. Build resources are `nf-compute-400-16` at $6.67 per 1,000 build minutes. These are the rates displayed at creation; consult Northflank for current billing.
+
 ## Runtime
 
 The app uses SolidStart 2 with Vite and Nitro's `node_server` preset. Use Node.js 24 or newer. `npm ci` installs the locked dependencies; `npm run build` creates a standalone `.output` directory. Production runs with `node .output/server/index.mjs`, not Vite's preview server.

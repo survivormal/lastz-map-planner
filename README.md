@@ -2,6 +2,8 @@
 
 A server 802 SVS map planner built with TypeScript, SolidJS/SolidStart, Zod and Ark UI. It uses the game's 1,000 × 1,000 odd-row hex coordinate system and seven-tile placement footprints.
 
+[Open the planner](https://p01--lastz-map-planner--clx6wvzz4h7r.code.run/)
+
 **Current fidelity:** coordinate topology is verified from an offline game snapshot. The installed normal-world obstacle asset and November 4 configuration provide a decoded static baseline: 43,279 blocked tiles and 90 city exclusion zones. Server 802 was confirmed by the user as Season 1; the client maps its standard S1 world to this asset. Dynamic occupancy, current events, runtime server overrides, game camera projection and march timing are not live-verified. Strict mode rejects unverified terrain. See [map evidence](docs/map-evidence.md) before using a plan in game.
 
 ## Run locally
@@ -29,7 +31,7 @@ Open [localhost:3100](http://127.0.0.1:3100). Production: `npm run build` then `
 - Share a compressed self-contained link. Recipients get an independent copy; there is no shared server database or live co-editing.
 - Plans autosave to this browser. Import and editing support undo/redo. Export JSON for durable backups.
 
-In **Layers**, map individual terrain tiles from in-game evidence. Alternatively, select the standard Season 1 profile to use the decoded baseline, or an unverified/custom profile for manual mapping. Food/Wood must remain off mud; set an alliance leader/rally marker in Layers to enforce the 50-step range for every Food/Wood tile. The measurement tool shows hex distance, not march time.
+In **Layers**, map individual terrain tiles from in-game evidence. Alternatively, select the standard Season 1 profile to use the decoded baseline, or an unverified/custom profile for manual mapping. Food/Wood must remain off mud; set an alliance leader/rally marker in Layers to enforce the 50-step range for every Food/Wood tile. Choose the marker type to reserve the leader’s seven-tile footprint or the rally point’s single tile. Use the active rally point when one exists; it takes precedence over the leader in game. The measurement tool shows hex distance, not march time.
 
 Keyboard: `V` select, `H` pan, `B` HQ, `F` food, `W` wood, `L` boundary, `M` measure, `T` terrain, `E` erase, `Space`+drag pan, `Enter` close a wedge, `Escape` cancel, `Delete` remove selection, `⌘/Ctrl+Z` undo, `⇧⌘/Ctrl+Z` redo. Coordinates can also be entered without pointing at the map.
 
@@ -51,6 +53,6 @@ Tests cover offset/axial round trips, world bounds, parity, footprints, clearanc
 
 GitHub: [survivormal/lastz-map-planner](https://github.com/survivormal/lastz-map-planner).
 
-GitHub Actions checks each push and PR. The Dockerfile builds and tests the application and runs the standalone SolidStart server as a non-root user. Northflank is the intended application host; Supabase can later provide accounts and shared persistence. See [deployment instructions](docs/deployment.md).
+GitHub Actions checks each push and PR. The Dockerfile builds and tests the application and runs the standalone SolidStart server as a non-root user. Northflank hosts the app under **LastZ → Map Planner → lastz-map-planner**, with automatic builds and deployments from `main`. Supabase can later provide accounts and shared persistence. See [deployment instructions](docs/deployment.md).
 
 The planner repository is separate from the research workspace. It includes only derived numeric map facts and provenance, not game source, private captures, account credentials or player datasets.
