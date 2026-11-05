@@ -35,16 +35,34 @@
     "food": {
       "radius": 1,
       "status": "client-table",
-      "buildIds": [30000, 30001, 31000, 31001, 32000, 32001],
+      "buildIds": [
+        30000,
+        30001,
+        31000,
+        31001,
+        32000,
+        32001
+      ],
       "configSize": 3,
-      "allowedTerrain": ["grass"]
+      "allowedTerrain": [
+        "grass"
+      ]
     },
     "wood": {
       "radius": 1,
       "status": "client-table",
-      "buildIds": [20000, 20001, 21000, 21001, 22000, 22001],
+      "buildIds": [
+        20000,
+        20001,
+        21000,
+        21001,
+        22000,
+        22001
+      ],
       "configSize": 3,
-      "allowedTerrain": ["grass"]
+      "allowedTerrain": [
+        "grass"
+      ]
     }
   },
   "terrain": {
@@ -89,7 +107,9 @@
   "march": {
     "distanceMetric": "cube-max",
     "timingVerified": false,
-    "missingConfigKeys": ["wonder_rocky_ground.k2"],
+    "missingConfigKeys": [
+      "wonder_rocky_ground.k2"
+    ],
     "note": "Client follows supplied path point IDs and speed; hex distance alone does not certify route or duration."
   },
   "cities": [
@@ -752,7 +772,12 @@
     },
     "allianceBuildingPlacement": {
       "path": "decompiled/lua-source/apk/slgengine_main_luatxt_util_all_07b7b79ca6bea8930bde47ef7e71891d-e876d5431ae2/-808051369483386194_WorldAllianceBuildUtil.lua",
-      "sha256": "fa2fd2d53f82fbd634eaa5ed76de0521a13a7b282d43c34db21185c39375fa9b"
+      "sha256": "fa2fd2d53f82fbd634eaa5ed76de0521a13a7b282d43c34db21185c39375fa9b",
+      "anchorRuleFunction": "WorldAllianceBuildUtil.IsCanPutDownByPoint",
+      "anchorRuleResearchLines": [
+        509,
+        547
+      ]
     },
     "cachedGlobalConfiguration": {
       "guestPath": "/media/0/Android/data/com.readygo.barrel.gp/files/data_config.txt",
@@ -797,11 +822,19 @@
   },
   "currentServerApplicability": "user-confirmed-s1-standard-mapping",
   "allianceResources": {
-    "allowedTerrain": ["grass"],
+    "allowedTerrain": [
+      "grass"
+    ],
     "markerRange": 50,
     "markerRangeRule": "ceil((alliance_gather_config.k1 - 1) / 2)",
     "markerConfigValue": 100,
-    "note": "Every footprint tile must fit inside the alliance rally or leader range; live marker position and occupancy remain required."
+    "note": "Anchor kind and position are required to certify this rule; dynamic occupancy and current marker selection remain outside the static dataset.",
+    "anchorSelectionRule": "Active alliance rally marker takes precedence; otherwise use the alliance leader invite-target coordinate.",
+    "anchorExclusionRadius": {
+      "rally": 0,
+      "leader": 1
+    },
+    "anchorValidationScope": "Every occupied footprint cell must be outside the applicable anchor exclusion and within markerRange."
   },
   "userConfirmedDisplaySeason": 1,
   "seasonMapping": {

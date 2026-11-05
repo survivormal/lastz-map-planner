@@ -7,6 +7,7 @@ const name = z.string().trim().min(1).max(160);
 export const TileSchema = z.object({ x: coordinate, y: coordinate });
 export const TerrainSchema = z.enum(["grass", "mud", "restricted", "unknown"]);
 export const SpacingSchema = z.enum(["tile", "tight", "loose"]);
+export const AllianceAnchorKindSchema = z.enum(["leader", "rally"]);
 export const PlacementSchema = z.object({
   id,
   kind: z.enum(["hq", "food", "wood"]),
@@ -40,6 +41,7 @@ export const PlanSchema = z
     name,
     server: z.number().int().positive().max(999999),
     allianceAnchor: TileSchema.nullable().default(null),
+    allianceAnchorKind: AllianceAnchorKindSchema.default("leader"),
     placements: z.array(PlacementSchema).max(5000),
     groups: z.array(GroupSchema).min(1).max(100),
     boundaries: z.array(BoundarySchema).max(200),
@@ -107,6 +109,7 @@ export type Group = z.infer<typeof GroupSchema>;
 export type Boundary = z.infer<typeof BoundarySchema>;
 export type Terrain = z.infer<typeof TerrainSchema>;
 export type Spacing = z.infer<typeof SpacingSchema>;
+export type AllianceAnchorKind = z.infer<typeof AllianceAnchorKindSchema>;
 
 export function createPlan(planName = "Server 802 · SVS plan"): Plan {
   return {
@@ -115,6 +118,7 @@ export function createPlan(planName = "Server 802 · SVS plan"): Plan {
     name: planName,
     server: 802,
     allianceAnchor: null,
+    allianceAnchorKind: "leader",
     placements: [],
     groups: [
       { id: "daisy", name: "Daisy Group", color: "#b5a0f5" },

@@ -206,6 +206,7 @@ export default function Planner() {
         spacing: "tile",
         allowUnknown: plan().settings.allowUnknown,
         allianceAnchor: plan().allianceAnchor ?? undefined,
+        allianceAnchorKind: plan().allianceAnchorKind,
       });
       return result.valid
         ? []
@@ -233,6 +234,7 @@ export default function Planner() {
     spacing: effectiveSpacing(),
     allowUnknown: plan().settings.allowUnknown,
     allianceAnchor: plan().allianceAnchor ?? undefined,
+    allianceAnchorKind: plan().allianceAnchorKind,
   });
   const effectiveSpacing = (): Spacing =>
     activeStrategy().minGap >= 2
@@ -1595,7 +1597,7 @@ export default function Planner() {
                       <Show when={p().kind !== "hq"}>
                         <p class="field-help">
                           {plan().allianceAnchor
-                            ? "Every footprint tile is checked within 50 hex steps of your alliance marker. Event availability still needs in-game verification."
+                            ? "Every footprint tile must stay within 50 hex steps and clear of the selected leader or rally footprint. Event availability still needs in-game verification."
                             : "Alliance range is unchecked. Set your leader/rally marker in Layers to check the 50-step limit."}
                         </p>
                       </Show>
@@ -1671,6 +1673,28 @@ export default function Planner() {
                 <p class="field-help">
                   Food and Wood must fit entirely within 50 hex steps of this
                   marker.
+                </p>
+                <label class="field">
+                  <span>Marker type</span>
+                  <select
+                    value={plan().allianceAnchorKind}
+                    onChange={(e) => {
+                      const kind = e.currentTarget.value as "leader" | "rally";
+                      commit((p) => {
+                        p.allianceAnchorKind = kind;
+                      });
+                    }}
+                  >
+                    <option value="leader">
+                      Alliance leader · seven tiles
+                    </option>
+                    <option value="rally">Rally point · one tile</option>
+                  </select>
+                </label>
+                <p class="field-help">
+                  {plan().allianceAnchorKind === "leader"
+                    ? "Blockers must leave the leader’s seven-tile HQ footprint clear."
+                    : "Blockers must leave the rally point tile clear."}
                 </p>
                 <div class="coordinate-fields">
                   <label>

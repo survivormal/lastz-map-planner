@@ -325,12 +325,29 @@ export default function WorldMap(props: Props) {
       ctx.setLineDash([4 / c.zoom, 6 / c.zoom]);
       ctx.stroke();
       ctx.setLineDash([]);
+      const reserved =
+        props.plan.allianceAnchorKind === "rally" ? [anchor] : footprint(anchor);
+      for (const tile of reserved) {
+        path(ctx, hexVertices(tile));
+        ctx.fillStyle = "#d8e6ae22";
+        ctx.fill();
+        ctx.strokeStyle = "#d8e6ae99";
+        ctx.stroke();
+      }
       const p = worldToPixel(anchor);
       ctx.beginPath();
       ctx.arc(p.x, p.y, 5 / c.zoom, 0, Math.PI * 2);
       ctx.fillStyle = "#d8e6ae";
       ctx.fill();
-      label(ctx, "ALLIANCE MARKER", p.x, p.y - 19 / c.zoom, "#d8e6ae");
+      label(
+        ctx,
+        props.plan.allianceAnchorKind === "rally" ? "RALLY POINT" : "ALLIANCE LEADER",
+        p.x,
+        p.y -
+          (props.plan.allianceAnchorKind === "rally" ? TILE_RADIUS : TILE_RADIUS * 2.5) -
+          9 / c.zoom,
+        "#d8e6ae",
+      );
     }
     for (const boundary of props.plan.boundaries) {
       const vertices =

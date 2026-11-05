@@ -1,5 +1,5 @@
 import { distance, footprint, inWorld, key, type Tile } from "./geometry";
-import type { Placement, Spacing, Terrain } from "./schema";
+import type { AllianceAnchorKind, Placement, Spacing, Terrain } from "./schema";
 
 export type TerrainLookup = (tile: Tile) => Terrain;
 export type PlacementCandidate = Tile & {
@@ -14,6 +14,8 @@ export type PlacementOptions = {
   allowUnknown?: boolean;
   /** Optional verified alliance leader/rally coordinate for food/wood range checks. */
   allianceAnchor?: Tile;
+  /** Active rally takes precedence in game; leader is the conservative default. */
+  allianceAnchorKind?: AllianceAnchorKind;
 };
 export type PlacementValidation = {
   valid: boolean;
@@ -88,14 +90,21 @@ export function validatePlacement(
       issues.push(
         "The alliance leader/rally marker must be a valid world coordinate.",
       );
-    } else if (
-      tiles.some(
-        (tile) => distance(tile, allianceAnchor) > ALLIANCE_BUILD_RANGE,
-      )
-    ) {
-      issues.push(
-        `Every alliance food/wood tile must be within ${ALLIANCE_BUILD_RANGE} hex steps of the leader/rally marker.`,
-      );
+    } else {
+      const rally = options.allianceAnchorKind === "rally";
+      const exclusionRadius = rally ? 0 : 1;
+      if (tiles.some((tile) => distance(tile, allianceAnchor) <= exclusionRadius)) {
+        issues.push(
+          rally
+            ? "Alliance food/wood must not cover the rally-marker tile."
+            : "Alliance food/wood must clear the leader's seven-tile HQ footprint.",
+        );
+      }
+      if (tiles.some((tile) => distance(tile, allianceAnchor) > ALLIANCE_BUILD_RANGE)) {
+        issues.push(
+          `Every alliance food/wood tile must be within ${ALLIANCE_BUILD_RANGE} hex steps of the leader/rally marker.`,
+        );
+      }
     }
   }
   unknownTiles.push(

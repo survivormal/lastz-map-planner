@@ -248,6 +248,35 @@ test("alliance blockers check every footprint tile against the optional 50-step 
   );
 });
 
+test("alliance blockers exclude the rally tile or the full leader footprint", () => {
+  for (const anchor of [center, { x: 500, y: 501 }]) {
+    for (const allianceAnchorKind of ["leader", "rally"] as const) {
+      const options = { terrainAt: grass, allianceAnchor: anchor, allianceAnchorKind };
+      const excluded = new Set(footprint(anchor, allianceAnchorKind === "leader" ? 1 : 0).map(key));
+      for (const tile of footprint(anchor, 4)) {
+        const expected = footprint(tile).every((cell) => !excluded.has(key(cell)));
+        for (const kind of ["food", "wood"] as const) {
+          const result = validatePlacement({ ...hq(tile), kind }, [], options);
+          assert.equal(result.valid, expected, `${kind} ${allianceAnchorKind} ${key(tile)}`);
+        }
+      }
+      assert.equal(validatePlacement(hq(anchor), [], options).valid, true);
+      const fringe = offset(anchor, { q: 50, r: 0 });
+      assert.equal(validatePlacement({ ...hq(fringe), kind: "food" }, [], options).valid, false);
+    }
+    const twoSteps = offset(anchor, { q: 2, r: 0 });
+    assert.equal(validatePlacement({ ...hq(twoSteps), kind: "wood" }, [], { terrainAt: grass, allianceAnchor: anchor }).valid, false);
+    assert.equal(validatePlacement({ ...hq(twoSteps), kind: "wood" }, [], { terrainAt: grass, allianceAnchor: anchor, allianceAnchorKind: "rally" }).valid, true);
+    assert.equal(validatePlacement({ ...hq(anchor), kind: "wood" }, [], { terrainAt: grass, allianceAnchorKind: "leader" }).valid, true);
+  }
+  const plan = createPlan();
+  assert.equal(plan.allianceAnchorKind, "leader");
+  const { allianceAnchorKind: _kind, ...legacy } = plan;
+  assert.equal(PlanSchema.parse(legacy).allianceAnchorKind, "leader");
+  assert.equal(PlanSchema.parse({ ...plan, allianceAnchorKind: "rally" }).allianceAnchorKind, "rally");
+  assert.equal(PlanSchema.safeParse({ ...plan, allianceAnchorKind: "unknown" }).success, false);
+});
+
 test("HQ moves reject overlap with the old footprint while allowing no-op and clear destinations", () => {
   const first = hq(center);
   assert.equal(
