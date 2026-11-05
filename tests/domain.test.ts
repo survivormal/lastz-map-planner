@@ -188,6 +188,66 @@ test("tile, tight, and loose mean zero, one, and two empty tiles between full fo
   );
 });
 
+test("alliance blockers check every footprint tile against the optional 50-step leader/rally range", () => {
+  for (const anchor of [center, { x: 500, y: 501 }]) {
+    for (const neighbor of neighbors(anchor)) {
+      const a = toAxial(anchor),
+        b = toAxial(neighbor);
+      const at49 = offset(anchor, { q: (b.q - a.q) * 49, r: (b.r - a.r) * 49 });
+      const at50 = offset(anchor, { q: (b.q - a.q) * 50, r: (b.r - a.r) * 50 });
+      for (const kind of ["food", "wood"] as const) {
+        assert.equal(
+          validatePlacement({ ...hq(at49), kind }, [], {
+            terrainAt: grass,
+            allianceAnchor: anchor,
+          }).valid,
+          true,
+        );
+        const edge = validatePlacement({ ...hq(at50), kind }, [], {
+          terrainAt: grass,
+          allianceAnchor: anchor,
+        });
+        assert.equal(edge.valid, false);
+        assert.ok(
+          edge.issues.some((issue) => issue.includes("within 50 hex steps")),
+        );
+        assert.equal(
+          validatePlacement({ ...hq(at50), kind }, [], { terrainAt: grass })
+            .valid,
+          true,
+        );
+      }
+      assert.equal(
+        validatePlacement(hq(at50), [], {
+          terrainAt: grass,
+          allianceAnchor: anchor,
+        }).valid,
+        true,
+      );
+    }
+  }
+  assert.equal(
+    validatePlacement({ ...hq(center), kind: "food" }, [], {
+      terrainAt: grass,
+      allianceAnchor: { x: -1, y: 5 },
+    }).valid,
+    false,
+  );
+  const plan = createPlan();
+  assert.equal(plan.allianceAnchor, null);
+  const { allianceAnchor: _anchor, ...legacyPlan } = plan;
+  assert.equal(PlanSchema.parse(legacyPlan).allianceAnchor, null);
+  assert.deepEqual(
+    PlanSchema.parse({ ...plan, allianceAnchor: center }).allianceAnchor,
+    center,
+  );
+  assert.equal(
+    PlanSchema.safeParse({ ...plan, allianceAnchor: { x: 1000, y: 0 } })
+      .success,
+    false,
+  );
+});
+
 test("HQ moves reject overlap with the old footprint while allowing no-op and clear destinations", () => {
   const first = hq(center);
   assert.equal(

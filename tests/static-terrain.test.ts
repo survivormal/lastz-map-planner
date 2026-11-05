@@ -58,11 +58,14 @@ test("city exclusions include every radius-three cell and stop at the next ring"
   assert.equal(staticTerrainAt(offset(city, { q: 4, r: 0 })), "grass");
 });
 
-test("cached baseline availability does not certify current server or unsupported seasons", () => {
+test("user-confirmed S1 selects the standard baseline without certifying live legality", () => {
   assert.equal(staticTerrainAvailable, true);
   assert.equal(staticTerrainVerified({ x: 700, y: 700 }), true);
   assert.equal(terrainConfidence.liveLegalityVerified, false);
-  assert.equal(terrainConfidence.serverApplicability, "unverified");
+  assert.equal(terrainConfidence.serverApplicability, "user-confirmed-s1-standard-mapping");
+  assert.equal(terrainConfidence.userConfirmedDisplaySeason, 1);
+  assert.equal(terrainConfidence.worldSeasonSelector, 0);
+  assert.equal(terrainConfidence.runtimeWorldSeasonOverrideVerified, false);
   for (const tile of [
     { x: -1, y: 0 },
     { x: 1000, y: 0 },

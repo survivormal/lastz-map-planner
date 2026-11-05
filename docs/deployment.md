@@ -1,6 +1,6 @@
 # Deployment
 
-This project is a standalone Git repository. Its GitHub remote is `git@github.com:survivormal/lastz-map-planner.git`; the Northflank hosting account/service still needs to be selected. No account, deployment, public URL, or secret is provisioned by these files.
+This project is a standalone Git repository. Its GitHub repository is `survivormal/lastz-map-planner`. The deployment target is Northflank team **LastZ**, project **Map Planner**, service **lastz-map-planner**. The service uses the root Dockerfile and release branch `main`. No runtime secrets are required.
 
 ## Runtime
 

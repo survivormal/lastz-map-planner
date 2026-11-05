@@ -8,6 +8,7 @@ import {
   toAxial,
   fromAxial,
   offset,
+  AXIAL_DIRECTIONS,
   inWorld,
   TILE_RADIUS,
   WORLD_SIZE,
@@ -313,6 +314,24 @@ export default function WorldMap(props: Props) {
     ctx.strokeStyle = "#a9b5a16b";
     ctx.lineWidth = 2 / c.zoom;
     ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    if (props.plan.allianceAnchor) {
+      const anchor = props.plan.allianceAnchor;
+      const vertices = AXIAL_DIRECTIONS.map((v) =>
+        worldToPixel(offset(anchor, { q: v.q * 50, r: v.r * 50 })),
+      );
+      path(ctx, vertices);
+      ctx.strokeStyle = "#b2d68d66";
+      ctx.lineWidth = 1 / c.zoom;
+      ctx.setLineDash([4 / c.zoom, 6 / c.zoom]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const p = worldToPixel(anchor);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5 / c.zoom, 0, Math.PI * 2);
+      ctx.fillStyle = "#d8e6ae";
+      ctx.fill();
+      label(ctx, "ALLIANCE MARKER", p.x, p.y - 19 / c.zoom, "#d8e6ae");
+    }
     for (const boundary of props.plan.boundaries) {
       const vertices =
         pointer?.boundary?.id === boundary.id && dragBoundary

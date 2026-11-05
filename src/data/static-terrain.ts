@@ -9,7 +9,7 @@ import type { Terrain } from "../domain/schema";
 import profile from "./world-profile.json";
 import blocks from "./static-blocks-s0.json";
 
-/** This is a dated normal-world baseline, not a live server occupancy survey. */
+/** Standard displayed S1 uses the S0 asset; this is a dated static baseline. */
 export const STATIC_TERRAIN_SCENARIO = "normal-s0";
 export const staticTerrainAvailable = true;
 export const terrainConfidence = Object.freeze({
@@ -19,12 +19,15 @@ export const terrainConfidence = Object.freeze({
   checkedAt: "2026-11-05",
   staticAssetMatchedInstalledApk: true,
   staticBlockedTiles: blocks.blockedTileCount,
-  serverApplicability: "unverified",
+  userConfirmedDisplaySeason: 1,
+  serverApplicability: "user-confirmed-s1-standard-mapping",
+  worldSeasonSelector: 0,
+  runtimeWorldSeasonOverrideVerified: false,
   liveLegalityVerified: false,
   seasonRule:
-    "S0 applies when world season is 0 or the seasonal map is closed. Active world season N uses S(N+1).",
+    "User-confirmed display S1 maps to raw season 0. Standard world-season fallback selects 0 and WorldBlockIndex_S0. A separate runtime world_season override can change this. Positive world-season N selects S(N+1).",
   limitations: [
-    "Server 802 current season and event state were not established by this offline extraction.",
+    "Server 802 display S1 is user-confirmed; a separate runtime world_season override and current events were not captured.",
     "Dynamic buildings, troops, resources, event restrictions and alliance marker requirements are not included.",
     "Static obstacles are classified as restricted; the source bitset does not distinguish water, rocks or decoration.",
   ],

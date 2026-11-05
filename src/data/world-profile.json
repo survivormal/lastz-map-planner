@@ -35,40 +35,22 @@
     "food": {
       "radius": 1,
       "status": "client-table",
-      "buildIds": [
-        30000,
-        30001,
-        31000,
-        31001,
-        32000,
-        32001
-      ],
+      "buildIds": [30000, 30001, 31000, 31001, 32000, 32001],
       "configSize": 3,
-      "allowedTerrain": [
-        "grass"
-      ]
+      "allowedTerrain": ["grass"]
     },
     "wood": {
       "radius": 1,
       "status": "client-table",
-      "buildIds": [
-        20000,
-        20001,
-        21000,
-        21001,
-        22000,
-        22001
-      ],
+      "buildIds": [20000, 20001, 21000, 21001, 22000, 22001],
       "configSize": 3,
-      "allowedTerrain": [
-        "grass"
-      ]
+      "allowedTerrain": ["grass"]
     }
   },
   "terrain": {
     "verified": true,
     "verificationScope": "cached-normal-world-static",
-    "currentServerApplicability": "unverified",
+    "currentServerApplicability": "user-confirmed-s1-standard-mapping",
     "staticPassabilityCoverage": 1,
     "defaultClassification": "grass",
     "mudRadius": 35,
@@ -95,7 +77,7 @@
       "capitalRestrictedRadius": 17,
       "notes": [
         "Original screenshot-inferred radii independently match the current cached DataConfig values.",
-        "This is a normal-world baseline; live server applicability remains unverified."
+        "The user-confirmed standard S1 profile selects this S0 baseline; runtime world-season override and live restrictions remain uncaptured."
       ],
       "source": "output/svs-checkerboard-20261103/new-map-grid-calibration.json"
     }
@@ -107,9 +89,7 @@
   "march": {
     "distanceMetric": "cube-max",
     "timingVerified": false,
-    "missingConfigKeys": [
-      "wonder_rocky_ground.k2"
-    ],
+    "missingConfigKeys": ["wonder_rocky_ground.k2"],
     "note": "Client follows supplied path point IDs and speed; hex distance alone does not certify route or duration."
   },
   "cities": [
@@ -762,7 +742,9 @@
     },
     "worldConstants": {
       "path": "decompiled/lua-source/apk/l_global_all_16ec42c9b96ace10210f28586b072c7d-ea4e12a8043e/-4208698031012135815_ConstDefine.lua",
-      "sha256": "6e58f2807360b7cd6b81b54cdc5616bc2cd7c253df3803a124b23fc724ad06a6"
+      "sha256": "6e58f2807360b7cd6b81b54cdc5616bc2cd7c253df3803a124b23fc724ad06a6",
+      "currentCachedAssetSha256": "bfed02c4d0b5a6352afdfc579e59e0e4a0f1cd4c41d543b4a2c197db6eb00246",
+      "currentCachedDimensionsMatched": true
     },
     "buildingPlacement": {
       "path": "decompiled/lua-source/apk/slgengine_main_luatxt_util_all_07b7b79ca6bea8930bde47ef7e71891d-e876d5431ae2/6452791042244904499_WorldBuildUtil.lua",
@@ -788,16 +770,52 @@
       "bitIndex": "pointId (not pointId - 1)",
       "clientIndexGuard": "pointId < 1000000",
       "artifact": "src/data/static-blocks-s0.json"
+    },
+    "displaySeasonConversion": {
+      "script": "ActivityInfoData",
+      "sha256": "93e993a3770ffd272f9c167d46de860a0765fe1170fa4a0749b789f921e14f8d",
+      "currentCache": true,
+      "rule": "NewSeason self.seasonId = activity.seasonId + 1, otherwise SeasonUtil.GetSeasonId()"
+    },
+    "displaySeasonLabel": {
+      "script": "UISeasonMain",
+      "sha256": "c512b96bc92493734692c3b21a8185df631993cd8487159ce8e50f01f758ec41",
+      "currentCachedVariantsAgree": true,
+      "rule": "Print S{actData.seasonId}; select UISeasonS1 when seasonId == 1"
+    },
+    "seasonWorldSelection": {
+      "script": "SeasonDataManager",
+      "sha256": "aeaa081635d5add16eb03dfaf8289edd6b1ca97f5f86256207d7666000d2696b",
+      "rule": "Runtime world_season, else group world_season, else raw season"
+    },
+    "cachedSeasonGroupTable": {
+      "sha256": "0dba20e01dee9eb89d43344a88972d85ef87ae9b785b466614bb91db155ab2f6",
+      "server802EntryFound": false,
+      "rawSeasonZeroGroupRows": 751,
+      "worldSeasonOverridePresentInRawSeasonZeroRows": false
     }
   },
-  "currentServerApplicability": "unverified",
+  "currentServerApplicability": "user-confirmed-s1-standard-mapping",
   "allianceResources": {
-    "allowedTerrain": [
-      "grass"
-    ],
+    "allowedTerrain": ["grass"],
     "markerRange": 50,
     "markerRangeRule": "ceil((alliance_gather_config.k1 - 1) / 2)",
     "markerConfigValue": 100,
     "note": "Every footprint tile must fit inside the alliance rally or leader range; live marker position and occupancy remain required."
+  },
+  "userConfirmedDisplaySeason": 1,
+  "seasonMapping": {
+    "displaySeason": 1,
+    "displaySeasonSource": "user-confirmed",
+    "standardWorldSeasonSelector": 0,
+    "staticAsset": "WorldBlockIndex_S0",
+    "runtimeWorldSeasonOverrideVerified": false,
+    "liveLegalityVerified": false,
+    "rule": "Activity display ID = raw activity season + 1; default world season = raw season; selector0 uses S0; selectorN>0 uses S(N+1).",
+    "sourceChecks": {
+      "rawSeasonZeroGroupRows": 751,
+      "rawSeasonZeroRowsWithWorldSeasonOverride": 0,
+      "currentCachedUiVariantsAgree": true
+    }
   }
 }

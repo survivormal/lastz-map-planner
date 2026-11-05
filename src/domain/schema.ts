@@ -39,6 +39,7 @@ export const PlanSchema = z
     id,
     name,
     server: z.number().int().positive().max(999999),
+    allianceAnchor: TileSchema.nullable().default(null),
     placements: z.array(PlacementSchema).max(5000),
     groups: z.array(GroupSchema).min(1).max(100),
     boundaries: z.array(BoundarySchema).max(200),
@@ -48,6 +49,9 @@ export const PlanSchema = z
     strategies: z.array(CustomStrategySchema).max(100).default([]),
     settings: z.object({
       spacing: SpacingSchema,
+      terrainProfile: z
+        .enum(["s1-standard", "unverified"])
+        .default("s1-standard"),
       strategyId: z.string().max(80).default("regular"),
       formation: z.enum(["single", "daisy", "grass", "mud"]).default("single"),
       rotation: z.number().int().min(0).max(5).default(0),
@@ -110,6 +114,7 @@ export function createPlan(planName = "Server 802 · SVS plan"): Plan {
     id: globalThis.crypto.randomUUID(),
     name: planName,
     server: 802,
+    allianceAnchor: null,
     placements: [],
     groups: [
       { id: "daisy", name: "Daisy Group", color: "#b5a0f5" },
@@ -121,6 +126,7 @@ export function createPlan(planName = "Server 802 · SVS plan"): Plan {
     strategies: [],
     settings: {
       spacing: "tile",
+      terrainProfile: "s1-standard",
       strategyId: "regular",
       formation: "single",
       rotation: 0,

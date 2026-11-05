@@ -12,6 +12,8 @@ export type PlacementOptions = {
   ignoreId?: string;
   /** Explicit planning sandbox; never treats unknown cells as verified terrain. */
   allowUnknown?: boolean;
+  /** Optional verified alliance leader/rally coordinate for food/wood range checks. */
+  allianceAnchor?: Tile;
 };
 export type PlacementValidation = {
   valid: boolean;
@@ -31,6 +33,7 @@ export const SPACING_PITCH: Record<Spacing, number> = {
   tight: 4,
   loose: 5,
 };
+export const ALLIANCE_BUILD_RANGE = 50;
 
 /** Food/wood radius one is game-config verified; HQ follows the requested seven-tile model. */
 export function placementFootprint(candidate: PlacementCandidate): Tile[] {
@@ -78,6 +81,22 @@ export function validatePlacement(
     tiles.some((tile) => inWorld(tile) && options.terrainAt(tile) === "mud")
   ) {
     issues.push("Alliance food and wood buildings cannot occupy mud tiles.");
+  }
+  const allianceAnchor = options.allianceAnchor;
+  if (candidate.kind !== "hq" && allianceAnchor) {
+    if (!inWorld(allianceAnchor)) {
+      issues.push(
+        "The alliance leader/rally marker must be a valid world coordinate.",
+      );
+    } else if (
+      tiles.some(
+        (tile) => distance(tile, allianceAnchor) > ALLIANCE_BUILD_RANGE,
+      )
+    ) {
+      issues.push(
+        `Every alliance food/wood tile must be within ${ALLIANCE_BUILD_RANGE} hex steps of the leader/rally marker.`,
+      );
+    }
   }
   unknownTiles.push(
     ...tiles.filter(

@@ -151,7 +151,7 @@ function ToolButton(props: {
   );
 }
 export default function Planner() {
-  const [plan, setPlan] = createSignal<Plan>(createPlan("Operation Northstar"));
+  const [plan, setPlan] = createSignal<Plan>(createPlan());
   const [tool, setTool] = createSignal<MapTool>("select");
   const [selected, setSelected] = createSignal<string | null>(null);
   const [group, setGroup] = createSignal("grass");
@@ -205,6 +205,7 @@ export default function Planner() {
         ignoreId: p.id,
         spacing: "tile",
         allowUnknown: plan().settings.allowUnknown,
+        allianceAnchor: plan().allianceAnchor ?? undefined,
       });
       return result.valid
         ? []
@@ -231,6 +232,7 @@ export default function Planner() {
     terrainAt: terrain().rules,
     spacing: effectiveSpacing(),
     allowUnknown: plan().settings.allowUnknown,
+    allianceAnchor: plan().allianceAnchor ?? undefined,
   });
   const effectiveSpacing = (): Spacing =>
     activeStrategy().minGap >= 2
@@ -836,7 +838,9 @@ export default function Planner() {
                   setMobilePanel(true);
                 }}
               >
-                Cached terrain ↗
+                {plan().settings.terrainProfile === "s1-standard"
+                  ? "S1 terrain ↗"
+                  : "Unverified terrain ↗"}
               </button>
             </div>
           </div>
@@ -972,7 +976,9 @@ export default function Planner() {
             <span class="legend-note">
               {camera().zoom <= 0.3
                 ? "Generalized overview"
-                : "Cached normal world"}
+                : plan().settings.terrainProfile === "s1-standard"
+                  ? "S1 · cached terrain"
+                  : "Unverified map"}
             </span>
           </div>
           <div class="map-status">
@@ -1583,13 +1589,14 @@ export default function Planner() {
                       <div class="confidence-line">
                         <AlertTriangle size={14} />
                         {footprint(p()).every((t) => terrain().verified(t))
-                          ? "User-mapped terrain"
-                          : "Cached terrain · verify in game"}
+                          ? "Configured S1 / mapped terrain"
+                          : "Unverified terrain · verify in game"}
                       </div>
                       <Show when={p().kind !== "hq"}>
                         <p class="field-help">
-                          Leader/rally range and event availability must also be
-                          verified in game.
+                          {plan().allianceAnchor
+                            ? "Every footprint tile is checked within 50 hex steps of your alliance marker. Event availability still needs in-game verification."
+                            : "Alliance range is unchecked. Set your leader/rally marker in Layers to check the 50-step limit."}
                         </p>
                       </Show>
                       <button
@@ -1660,6 +1667,70 @@ export default function Planner() {
             </Tabs.Content>
             <Tabs.Content value="layers">
               <div class="panel-section">
+                <div class="section-label">ALLIANCE LEADER / RALLY MARKER</div>
+                <p class="field-help">
+                  Food and Wood must fit entirely within 50 hex steps of this
+                  marker.
+                </p>
+                <div class="coordinate-fields">
+                  <label>
+                    X
+                    <input
+                      aria-label="Alliance marker X"
+                      value={xInput()}
+                      onInput={(e) => setXInput(e.currentTarget.value)}
+                    />
+                  </label>
+                  <label>
+                    Y
+                    <input
+                      aria-label="Alliance marker Y"
+                      value={yInput()}
+                      onInput={(e) => setYInput(e.currentTarget.value)}
+                    />
+                  </label>
+                </div>
+                <button
+                  class="button full subtle"
+                  onClick={() => {
+                    const tile = typedTile();
+                    if (tile)
+                      commit((p) => {
+                        p.allianceAnchor = tile;
+                      });
+                  }}
+                >
+                  <MapPin size={15} />
+                  Set alliance marker
+                </button>
+                <Show
+                  when={plan().allianceAnchor}
+                  fallback={
+                    <p class="field-help">
+                      No marker set · blocker range is unchecked.
+                    </p>
+                  }
+                >
+                  {(anchor) => (
+                    <>
+                      <p class="field-help">
+                        Marker at X:{anchor().x} Y:{anchor().y}
+                      </p>
+                      <button
+                        class="text-button"
+                        onClick={() =>
+                          commit((p) => {
+                            p.allianceAnchor = null;
+                          })
+                        }
+                      >
+                        Remove marker
+                      </button>
+                    </>
+                  )}
+                </Show>
+              </div>
+              <div class="panel-section">
                 <div class="section-label">MAP DISPLAY</div>
                 <Toggle
                   label="Hex grid"
@@ -1685,7 +1756,7 @@ export default function Planner() {
                   <AlertTriangle size={14} />
                 </div>
                 <div class="reference-card">
-                  <strong>Decoded normal-world baseline.</strong>
+                  <strong>Season 1 · decoded static terrain.</strong>
                   <p>
                     Includes the installed map’s 43,279 static blocked tiles, 90
                     city exclusion zones, and mud rules from the November 4
@@ -1693,16 +1764,32 @@ export default function Planner() {
                     yet confirmed.
                   </p>
                 </div>
+                <label class="field">
+                  <span>World profile</span>
+                  <select
+                    value={plan().settings.terrainProfile}
+                    onChange={(e) =>
+                      setting(
+                        "terrainProfile",
+                        e.currentTarget.value as "s1-standard" | "unverified",
+                      )
+                    }
+                  >
+                    <option value="s1-standard">
+                      Season 1 · standard world
+                    </option>
+                    <option value="unverified">Unverified / custom map</option>
+                  </select>
+                </label>
                 <Toggle
-                  label="Use cached normal-world terrain"
-                  detail="Provisional until the active season is confirmed"
+                  label="Allow unverified cells"
+                  detail="Allow planning on cells marked unknown"
                   checked={plan().settings.allowUnknown}
                   onChange={(v) => setting("allowUnknown", v)}
                 />
                 <p class="field-help">
-                  With this off, only your mapped cells are accepted. Current
-                  buildings, events and alliance leader range still need in-game
-                  verification.
+                  Unknown cells are blocked by default. Current buildings and
+                  event restrictions still need in-game verification.
                 </p>
               </div>
               <div class="panel-section">
@@ -1734,6 +1821,21 @@ export default function Planner() {
               </div>
               <div class="panel-section">
                 <div class="section-label">EXPORT & REFERENCE</div>
+                <button
+                  class="button full subtle"
+                  onClick={() => {
+                    commit((p) => Object.assign(p, createPlan()));
+                    setSelected(null);
+                    setGroup("grass");
+                    useTool("select");
+                    notify(
+                      "New plan created. Undo restores the previous plan.",
+                    );
+                  }}
+                >
+                  <Plus size={15} />
+                  New empty plan
+                </button>
                 <button
                   class="button full subtle"
                   onClick={() =>
