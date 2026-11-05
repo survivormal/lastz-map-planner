@@ -12,6 +12,7 @@ import {
   inWorld,
   TILE_RADIUS,
   WORLD_SIZE,
+  visiblePlotSites,
   type Plan,
   type Tile,
   type Placement,
@@ -47,6 +48,8 @@ type Props = {
   boundaryDraft: Tile[];
   measure: Tile[];
   riskTiles: Tile[];
+  plotGuide?: { anchor: Tile; basis: [Axial, Axial] };
+  plotTarget?: Tile;
   onHover: (tile: Tile | null) => void;
   onClick: (tile: Tile, placement?: Placement) => void;
   onMove: (id: string, tile: Tile) => void;
@@ -268,6 +271,122 @@ export default function WorldMap(props: Props) {
     }
     ctx.restore();
   }
+  function drawPlotGuide(
+    ctx: CanvasRenderingContext2D,
+    bounds: { minX: number; maxX: number; minY: number; maxY: number },
+  ) {
+    const guide = props.plotGuide;
+    if (!guide) return;
+    const c = camera();
+    ctx.save();
+    // Hollow centers indicate alignment only: terrain validation belongs to the placement preview.
+    // The bounded domain query is skipped entirely at overview scales.
+    let guideNeedsZoom = c.zoom < 0.4;
+    if (!guideNeedsZoom) {
+      const { sites, truncated } = visiblePlotSites(guide, bounds, 1500);
+      guideNeedsZoom = truncated;
+      const nodes = (truncated ? [] : sites).map((site) => ({
+        ...site,
+        pixel: worldToPixel(site.tile),
+      }));
+      const byIndex = new Map(
+        nodes.map((node) => [`${node.i},${node.j}`, node]),
+      );
+      ctx.strokeStyle = "#a9dfc02e";
+      ctx.lineWidth = 0.8 / c.zoom;
+      ctx.beginPath();
+      for (const node of nodes) {
+        for (const neighbor of [
+          byIndex.get(`${node.i + 1},${node.j}`),
+          byIndex.get(`${node.i},${node.j + 1}`),
+        ]) {
+          if (!neighbor) continue;
+          ctx.moveTo(node.pixel.x, node.pixel.y);
+          ctx.lineTo(neighbor.pixel.x, neighbor.pixel.y);
+        }
+      }
+      ctx.stroke();
+      ctx.strokeStyle = "#b7e7caad";
+      ctx.lineWidth = 1.1 / c.zoom;
+      ctx.beginPath();
+      const radius = 3.25 / c.zoom;
+      for (const { pixel } of nodes) {
+        ctx.moveTo(pixel.x + radius, pixel.y);
+        ctx.arc(pixel.x, pixel.y, radius, 0, Math.PI * 2);
+      }
+      ctx.stroke();
+    }
+    if (guideNeedsZoom) {
+      label(
+        ctx,
+        "Zoom in to show the full plot guide",
+        c.x,
+        c.y - height / c.zoom / 2 + 165 / c.zoom,
+        "#e8cf8b",
+      );
+    }
+    const anchor = worldToPixel(guide.anchor);
+    if (
+      Math.abs(anchor.x - c.x) <= (width / 2 + 80) / c.zoom &&
+      Math.abs(anchor.y - c.y) <= (height / 2 + 80) / c.zoom
+    ) {
+      // Short axis strokes preserve the plot's orientation even when its lattice is hidden.
+      ctx.strokeStyle = "#e8cf8b99";
+      ctx.lineWidth = 1 / c.zoom;
+      ctx.beginPath();
+      for (const vector of guide.basis) {
+        const end = worldToPixel(offset(guide.anchor, vector));
+        const dx = end.x - anchor.x,
+          dy = end.y - anchor.y,
+          length = Math.hypot(dx, dy);
+        if (!length) continue;
+        const scale = 18 / (c.zoom * length);
+        ctx.moveTo(anchor.x - dx * scale, anchor.y - dy * scale);
+        ctx.lineTo(anchor.x + dx * scale, anchor.y + dy * scale);
+      }
+      ctx.stroke();
+      const radius = 8 / c.zoom;
+      path(ctx, [
+        { x: anchor.x, y: anchor.y - radius },
+        { x: anchor.x + radius, y: anchor.y },
+        { x: anchor.x, y: anchor.y + radius },
+        { x: anchor.x - radius, y: anchor.y },
+      ]);
+      ctx.fillStyle = "#17251fe6";
+      ctx.fill();
+      ctx.strokeStyle = "#ecd28f";
+      ctx.lineWidth = 1.6 / c.zoom;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(anchor.x, anchor.y, 2 / c.zoom, 0, Math.PI * 2);
+      ctx.fillStyle = "#ecd28f";
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  function drawPlotTarget(ctx: CanvasRenderingContext2D) {
+    if (!props.plotGuide || !props.plotTarget || camera().zoom < 0.4) return;
+    const target = worldToPixel(props.plotTarget),
+      c = camera();
+    ctx.save();
+    // The ghost footprint supplies legal/blocked feedback; this cross only marks the snapped center.
+    ctx.strokeStyle = "#f2dca4";
+    ctx.lineWidth = 1.5 / c.zoom;
+    ctx.beginPath();
+    const inner = 3 / c.zoom,
+      outer = 8 / c.zoom;
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      ctx.moveTo(target.x + dx * inner, target.y + dy * inner);
+      ctx.lineTo(target.x + dx * outer, target.y + dy * outer);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
   function draw() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -314,6 +433,7 @@ export default function WorldMap(props: Props) {
     ctx.strokeStyle = "#a9b5a16b";
     ctx.lineWidth = 2 / c.zoom;
     ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    drawPlotGuide(ctx, { minX: x0, maxX: x1, minY: y0, maxY: y1 });
     if (props.plan.allianceAnchor) {
       const anchor = props.plan.allianceAnchor;
       const vertices = AXIAL_DIRECTIONS.map((v) =>
@@ -439,6 +559,7 @@ export default function WorldMap(props: Props) {
           0.3,
           true,
         );
+    drawPlotTarget(ctx);
     const draft = props.boundaryDraft.length
       ? props.boundaryDraft
       : props.measure;
@@ -469,6 +590,27 @@ export default function WorldMap(props: Props) {
         p.y - (rally ? TILE_RADIUS : TILE_RADIUS * 2.5) - 9 / c.zoom,
         "#d8e6ae",
       );
+    }
+    if (props.plotGuide) {
+      const anchor = worldToPixel(props.plotGuide.anchor);
+      if (
+        Math.abs(anchor.x - c.x) <= (width / 2 + 80) / c.zoom &&
+        Math.abs(anchor.y - c.y) <= (height / 2 + 80) / c.zoom
+      ) {
+        // Draw labels after HQs so an occupied anchor remains identifiable at every zoom.
+        const sharedMarker =
+          props.plan.allianceAnchor &&
+          distance(props.plan.allianceAnchor, props.plotGuide.anchor) <= 1;
+        label(
+          ctx,
+          "PLOT ANCHOR",
+          anchor.x,
+          anchor.y -
+            Math.max(TILE_RADIUS * 2.5, 20 / c.zoom) -
+            (sharedMarker ? 34 : 14) / c.zoom,
+          "#ecd28f",
+        );
+      }
     }
     const palace = worldToPixel({ x: 500, y: 500 });
     if (
@@ -869,6 +1011,8 @@ export default function WorldMap(props: Props) {
     props.boundaryDraft;
     props.measure;
     props.riskTiles;
+    props.plotGuide;
+    props.plotTarget;
     props.terrainAt;
     if (pointer && pointer.tool !== props.tool) cancelPointer();
     schedule();

@@ -70,6 +70,8 @@ import {
   offset,
   orientVector,
   transformCluster,
+  nearestPlotTile,
+  plotCoordinates,
   rotateStrategyVector,
   type SmartFillResult,
   type Plan,
@@ -78,6 +80,8 @@ import {
   type Terrain,
   type Spacing,
   type FormationCluster,
+  type PlotLattice,
+  type Axial,
 } from "../domain";
 import {
   parsePlan,
@@ -240,6 +244,53 @@ export default function Planner() {
       : (registry().get(strategy()) ??
         regularStrategy(plan().settings.spacing)),
   );
+  const orientedBasis = createMemo(
+    () =>
+      activeStrategy().basis.map((v) =>
+        orientVector(
+          rotateStrategyVector(v, activeStrategy().rotation),
+          rotation(),
+          mirrored(),
+        ),
+      ) as [Axial, Axial],
+  );
+  const plotEnabled = () =>
+    formation() === "single" &&
+    strategy() !== "regular" &&
+    plan().settings.plotGuide;
+  const plotLattice = createMemo<PlotLattice | undefined>(() =>
+    plotEnabled() && plan().plotAnchor
+      ? { anchor: plan().plotAnchor!, basis: orientedBasis() }
+      : undefined,
+  );
+  const plotPlacement = () => tool() === "hq" && plotEnabled();
+  const rawPreviewTile = () => hover() ?? pinnedPreview();
+  const plotTarget = createMemo(() => {
+    const lattice = plotLattice(),
+      tile = rawPreviewTile();
+    return plotPlacement() && lattice && tile
+      ? nearestPlotTile(tile, lattice)
+      : null;
+  });
+  const offPlotCount = createMemo(() => {
+    const lattice = plotLattice();
+    return lattice
+      ? plan().placements.filter(
+          (p) =>
+            p.kind === "hq" &&
+            p.groupId === activeGroup().id &&
+            !plotCoordinates(p, lattice).onPlot,
+        ).length
+      : 0;
+  });
+  const coordinatePlotTarget = createMemo(() => {
+    if (!plotPlacement()) return null;
+    const lattice = plotLattice(),
+      tile = readTypedTile();
+    return lattice && tile && !plotCoordinates(tile, lattice).onPlot
+      ? nearestPlotTile(tile, lattice)
+      : null;
+  });
   const options = () => ({
     terrainAt: terrain().rules,
     spacing: effectiveSpacing(),
@@ -329,13 +380,7 @@ export default function Planner() {
         { rotation: rotation(), mirrored: mirrored() },
       );
     }
-    const [a, b] = activeStrategy().basis.map((v) =>
-      orientVector(
-        rotateStrategyVector(v, activeStrategy().rotation),
-        rotation(),
-        mirrored(),
-      ),
-    );
+    const [a, b] = orientedBasis();
     const vectors =
       formation() === "daisy"
         ? [
@@ -354,7 +399,53 @@ export default function Planner() {
     return vectors.map((v) => offset(tile, v));
   }
   function candidateTiles(tile: Tile) {
+    if (plotPlacement() && plotLattice()) {
+      const target = nearestPlotTile(tile, plotLattice()!);
+      return target ? [target.tile] : [];
+    }
     return tool() === "hq" ? formationTiles(tile) : [tile];
+  }
+  function setPlotAnchor(tile: Tile, fromPlacement?: Placement) {
+    const cluster = fromPlacement?.clusterId
+      ? plan().clusters.find((c) => c.id === fromPlacement.clusterId)
+      : undefined;
+    commit((p) => {
+      p.plotAnchor = { x: tile.x, y: tile.y };
+      p.settings.plotGuide = true;
+      p.settings.formation = "single";
+      if (cluster) {
+        p.settings.rotation = cluster.rotation;
+        p.settings.mirrored = cluster.mirrored;
+      }
+    });
+    if (fromPlacement) setGroup(fromPlacement.groupId);
+    useTool("hq");
+    setTab("plan");
+    map?.focus(tile);
+    notify(
+      `Plot anchored at X:${tile.x} Y:${tile.y}. New HQs snap to this pattern.`,
+    );
+  }
+  function resetPlot() {
+    commit((p) => {
+      p.plotAnchor = null;
+    });
+    useTool("hq");
+    notify(
+      "Place the first HQ of your new plot, or choose an existing HQ as its anchor.",
+    );
+  }
+  function plotDiagram() {
+    const [a, b] = orientedBasis();
+    return [
+      { q: 0, r: 0 },
+      a,
+      b,
+      { q: b.q - a.q, r: b.r - a.r },
+      { q: -a.q, r: -a.r },
+      { q: -b.q, r: -b.r },
+      { q: a.q - b.q, r: a.r - b.r },
+    ].map((v) => offset(orientationAnchor, v));
   }
   const orientationAnchor = { x: 500, y: 500 };
   function orientPreset(turns = 0, flip = false, reset = false) {
@@ -489,16 +580,36 @@ export default function Planner() {
     return [...new Set(issues)];
   }
   const preview = createMemo(() =>
-    (hover() ?? pinnedPreview()) && ["hq", "food", "wood"].includes(tool())
-      ? candidateTiles((hover() ?? pinnedPreview())!)
+    rawPreviewTile() && ["hq", "food", "wood"].includes(tool())
+      ? plotTarget()
+        ? [plotTarget()!.tile]
+        : candidateTiles(rawPreviewTile()!)
       : [],
   );
   const previewIssues = createMemo(() =>
     preview().length ? checkTiles(preview()) : [],
   );
-  function placeAt(tile: Tile) {
+  function placeAt(tile: Tile, exactCoordinates = false) {
+    if (
+      exactCoordinates &&
+      plotPlacement() &&
+      plotLattice() &&
+      !plotCoordinates(tile, plotLattice()!).onPlot
+    ) {
+      const target = nearestPlotTile(tile, plotLattice()!);
+      notify(
+        target
+          ? `Those coordinates are off the plot. Snap to X:${target.tile.x} Y:${target.tile.y}, or turn off Snap to plot.`
+          : "No plot center is available inside this world.",
+      );
+      return;
+    }
     const tiles = candidateTiles(tile),
       issues = checkTiles(tiles);
+    if (!tiles.length) {
+      notify("No plot center is available inside this world.");
+      return;
+    }
     if (issues.length) {
       notify(issues[0]);
       return;
@@ -509,12 +620,21 @@ export default function Planner() {
       ...candidate(v, i),
       ...(cluster ? { clusterId: cluster.id } : {}),
     }));
-    commit((p) => {
-      p.placements.push(...added);
-      if (cluster) p.clusters.push(cluster);
-    });
+    if (
+      !commit((p) => {
+        p.placements.push(...added);
+        if (cluster) p.clusters.push(cluster);
+        if (plotPlacement() && !p.plotAnchor)
+          p.plotAnchor = { x: added[0].x, y: added[0].y };
+      })
+    )
+      return;
     setPinnedPreview(null);
     setSelected(added[0].id);
+    if (plotPlacement()) {
+      setXInput(String(added[0].x));
+      setYInput(String(added[0].y));
+    }
     notify(
       `${added.length === 1 ? "Position" : `${added.length} positions`} added to ${activeGroup().name}.`,
     );
@@ -833,7 +953,7 @@ export default function Planner() {
         !e.ctrlKey &&
         !e.altKey &&
         tool() === "hq" &&
-        formation() !== "single"
+        (formation() !== "single" || plotEnabled())
       ) {
         e.preventDefault();
         orientPreset(e.shiftKey ? -1 : 1);
@@ -939,6 +1059,8 @@ export default function Planner() {
               terrainAt={terrain().display}
               preview={fillPreview()?.placements ?? preview()}
               previewValid={fillPreview() ? true : !previewIssues().length}
+              plotGuide={tool() === "hq" ? plotLattice() : undefined}
+              plotTarget={plotTarget()?.tile}
               boundaryDraft={draft()}
               measure={measure()}
               riskTiles={risk()?.witnessPair ?? []}
@@ -1135,11 +1257,13 @@ export default function Planner() {
             </span>
           </div>
           <div class="map-status">
-            <span>
+            <span classList={{ "plot-target-status": Boolean(plotTarget()) }}>
               <MapPin size={12} />
-              {hover()
-                ? `X: ${hover()!.x}   Y: ${hover()!.y}`
-                : "Hover to inspect a tile"}
+              {plotTarget()
+                ? `Plot X: ${plotTarget()!.tile.x}   Y: ${plotTarget()!.tile.y}`
+                : hover()
+                  ? `X: ${hover()!.x}   Y: ${hover()!.y}`
+                  : "Hover to inspect a tile"}
             </span>
             <span class="status-tool">
               {tools.find((t) => t.id === tool())?.label}
@@ -1298,6 +1422,91 @@ export default function Planner() {
                     Over the map: R rotates clockwise; Shift+R rotates back.
                   </p>
                 </Show>
+                <Show
+                  when={formation() === "single" && strategy() !== "regular"}
+                >
+                  <div class="plot-guide-panel">
+                    <div class="section-label">
+                      PLOT GUIDE <Crosshair size={14} />
+                    </div>
+                    <Toggle
+                      label="Snap to plot"
+                      detail="Keep single HQs on the same stagger."
+                      checked={plan().settings.plotGuide}
+                      onChange={(value) => {
+                        setting("plotGuide", value);
+                        useTool("hq");
+                      }}
+                    />
+                    <Show when={plan().settings.plotGuide}>
+                      <Show
+                        when={plan().plotAnchor}
+                        fallback={
+                          <p class="field-help">
+                            Use an existing HQ as the anchor, or place your
+                            first HQ to start the plot.
+                          </p>
+                        }
+                      >
+                        {(anchor) => (
+                          <>
+                            <button
+                              class="coordinate-copy"
+                              onClick={() => map?.focus(anchor())}
+                            >
+                              <span>
+                                Plot anchor{" "}
+                                <b>
+                                  X:{anchor().x} Y:{anchor().y}
+                                </b>
+                              </span>
+                              <Crosshair size={15} />
+                            </button>
+                            <p class="field-help">
+                              The anchor stays fixed. Guide dots mark plot
+                              centers; terrain and blockers are still checked.
+                            </p>
+                            <button class="text-button" onClick={resetPlot}>
+                              Start a new plot
+                            </button>
+                          </>
+                        )}
+                      </Show>
+                      <Show when={selectedPlacement()?.kind === "hq"}>
+                        <button
+                          class="button full subtle"
+                          onClick={() =>
+                            setPlotAnchor(
+                              selectedPlacement()!,
+                              selectedPlacement()!,
+                            )
+                          }
+                        >
+                          <MapPin size={15} />
+                          Use selected HQ as plot anchor
+                        </button>
+                      </Show>
+                      <Show when={offPlotCount() > 0}>
+                        <p class="plot-warning">
+                          {offPlotCount()} HQ{offPlotCount() === 1 ? "" : "s"}{" "}
+                          in {activeGroup().name}{" "}
+                          {offPlotCount() === 1 ? "is" : "are"} off this plot.
+                          Existing positions stay unchanged.
+                        </p>
+                      </Show>
+                      <FormationOrientation
+                        scope="plot"
+                        tiles={plotDiagram()}
+                        anchor={orientationAnchor}
+                        rotation={rotation()}
+                        mirrored={mirrored()}
+                        onRotate={(turns) => orientPreset(turns)}
+                        onFlip={() => orientPreset(0, true)}
+                        onReset={() => orientPreset(0, false, true)}
+                      />
+                    </Show>
+                  </div>
+                </Show>
                 <div class="footprint-note">
                   <span class="seven-dot">⬡</span>
                   <span>
@@ -1451,13 +1660,46 @@ export default function Planner() {
                     if (t) {
                       if (!["hq", "food", "wood"].includes(tool()))
                         setTool("hq");
-                      placeAt(t);
+                      placeAt(t, true);
                     }
                   }}
                 >
                   <Plus size={15} />
                   Place at coordinates
                 </button>
+                <Show
+                  when={formation() === "single" && strategy() !== "regular"}
+                >
+                  <button
+                    class="button full subtle plot-coordinate-action"
+                    onClick={() => {
+                      const tile = typedTile();
+                      if (tile) setPlotAnchor(tile);
+                    }}
+                  >
+                    <MapPin size={15} />
+                    Use coordinates as plot anchor
+                  </button>
+                  <Show when={coordinatePlotTarget()}>
+                    {(target) => (
+                      <button
+                        class="button full subtle plot-coordinate-action"
+                        onClick={() => {
+                          const tile = target().tile;
+                          setXInput(String(tile.x));
+                          setYInput(String(tile.y));
+                          useTool("hq");
+                          setPinnedPreview(tile);
+                          map?.focus(tile);
+                        }}
+                      >
+                        <Crosshair size={15} />
+                        Snap coordinates to X:{target().tile.x} Y:
+                        {target().tile.y}
+                      </button>
+                    )}
+                  </Show>
+                </Show>
               </div>
             </Tabs.Content>
             <Tabs.Content value="inspect">
@@ -1655,6 +1897,17 @@ export default function Planner() {
                       <p class="field-help">
                         Click to copy the in-game coordinate token.
                       </p>
+                      <Show
+                        when={p().kind === "hq" && strategy() !== "regular"}
+                      >
+                        <button
+                          class="button full subtle"
+                          onClick={() => setPlotAnchor(p(), p())}
+                        >
+                          <MapPin size={15} />
+                          Continue plot from this HQ
+                        </button>
+                      </Show>
                       <div class="coordinate-fields">
                         <label>
                           X

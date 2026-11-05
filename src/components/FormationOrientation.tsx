@@ -20,7 +20,7 @@ export type FormationOrientationProps = {
   onRotate: (delta: number) => void;
   onFlip: () => void;
   onReset: () => void;
-  scope: "preset" | "cluster";
+  scope: "preset" | "cluster" | "plot";
   symmetric?: boolean;
 };
 
@@ -32,7 +32,11 @@ export default function FormationOrientation(props: FormationOrientationProps) {
   const id = createUniqueId();
   const degrees = () => (((props.rotation % 6) + 6) % 6) * 60;
   const subject = () =>
-    props.scope === "cluster" ? "placed cluster" : "preset";
+    props.scope === "cluster"
+      ? "placed cluster"
+      : props.scope === "plot"
+        ? "plot"
+        : "preset";
   const preview = createMemo(() => {
     const origin = worldToPixel(props.anchor, RADIUS);
     const buildings = props.tiles.map((center) => ({
@@ -75,7 +79,9 @@ export default function FormationOrientation(props: FormationOrientationProps) {
       <legend>
         {props.scope === "cluster"
           ? "Cluster orientation"
-          : "Preset orientation"}
+          : props.scope === "plot"
+            ? "Plot orientation"
+            : "Preset orientation"}
       </legend>
       <div class="formation-orientation-heading">
         <span>Illustrative grid preview</span>
@@ -98,14 +104,20 @@ export default function FormationOrientation(props: FormationOrientationProps) {
           preserveAspectRatio="xMidYMid meet"
         >
           <title id={`${id}-title`}>
-            {props.scope === "cluster" ? "Placed cluster" : "Preset"} footprint
-            preview
+            {props.scope === "cluster"
+              ? "Placed cluster"
+              : props.scope === "plot"
+                ? "Plot centers"
+                : "Preset"}{" "}
+            footprint preview
           </title>
           <desc id={`${id}-description`}>
-            {props.tiles.length} HQs with seven hexagonal tiles each.
-            Orientation {degrees()} degrees{props.mirrored ? ", flipped" : ""}.
-            The bright dot marks the fixed anchor at X {props.anchor.x}, Y{" "}
-            {props.anchor.y}. Terrain is not shown.
+            {props.tiles.length}{" "}
+            {props.scope === "plot" ? "potential HQ centers" : "HQs"} with seven
+            hexagonal tiles each. Orientation {degrees()} degrees
+            {props.mirrored ? ", flipped" : ""}. The bright dot marks the fixed
+            anchor at X {props.anchor.x}, Y {props.anchor.y}. Terrain is not
+            shown.
           </desc>
           <defs>
             <pattern
@@ -208,7 +220,9 @@ export default function FormationOrientation(props: FormationOrientationProps) {
           ? "A full Daisy repeats every 60°. Staggered Daisies can be flipped to change their slant."
           : props.scope === "cluster"
             ? "Turns the whole cluster around the bright anchor. Terrain and spacing are checked before it moves."
-            : "Choose the direction before placing. The bright dot marks the anchor."}
+            : props.scope === "plot"
+              ? "Places one HQ at a time. Rotate or flip the guide; existing HQs stay put. A regular stagger plot repeats every 60°; Flip changes its slant."
+              : "Choose the direction before placing. The bright dot marks the anchor."}
       </p>
     </fieldset>
   );

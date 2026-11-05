@@ -13,6 +13,27 @@
   --radius: 9px;
   color-scheme: dark;
 }
+.plot-guide-panel {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.plot-guide-panel > .button,
+.plot-coordinate-action {
+  margin-top: 8px;
+}
+.plot-warning {
+  padding: 10px 12px;
+  border-left: 2px solid #d5bd82;
+  background: #d5bd820b;
+  color: #e5d2a6;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.plot-target-status {
+  color: #d8c492;
+  font-variant-numeric: tabular-nums;
+}
 * {
   box-sizing: border-box;
 }

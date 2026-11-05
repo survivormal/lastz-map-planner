@@ -5,3 +5,4 @@ export * from "./formations";
 export * from "./strategies";
 export * from "./orientation";
 export * from "./clusters";
+export * from "./plot";
