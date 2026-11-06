@@ -20,6 +20,8 @@ import {
   type Axial,
 } from "../domain";
 import type { Terrain } from "../domain/schema";
+import { createTerrainPainter, TERRAIN_COLORS } from "./terrain-painter";
+import { drawGameLandmarks } from "./map-landmarks";
 
 export type MapTool =
   | "select"
@@ -62,12 +64,6 @@ type Props = {
   onCamera: (camera: Camera) => void;
   api: (api: MapApi) => void;
 };
-const terrainColors: Record<Terrain, string> = {
-  grass: "#293e36",
-  mud: "#4c4032",
-  restricted: "#382e30",
-  unknown: "#293334",
-};
 const TILE_WIDTH = Math.sqrt(3) * TILE_RADIUS;
 const WORLD_WIDTH = TILE_WIDTH * (WORLD_SIZE + 0.5),
   WORLD_HEIGHT = TILE_RADIUS * (1.5 * (WORLD_SIZE - 1) + 2);
@@ -77,16 +73,13 @@ const terrainPriority: Record<Terrain, number> = {
   unknown: 2,
   restricted: 3,
 };
-const terrainRgb = [
-  [41, 62, 54],
-  [76, 64, 50],
-  [41, 51, 52],
-  [56, 46, 48],
-];
 // Cancel shared edges once; each HQ has the same seven-tile outer silhouette.
 const HQ_OUTLINE = (() => {
   const origin = worldToPixel({ x: 0, y: 0 });
-  const edges = new Map<string, [{ x: number; y: number }, { x: number; y: number }]>();
+  const edges = new Map<
+    string,
+    [{ x: number; y: number }, { x: number; y: number }]
+  >();
   for (const cell of footprint({ x: 0, y: 0 })) {
     const vertices = hexVertices(cell);
     vertices.forEach((a, index) => {
@@ -96,15 +89,19 @@ const HQ_OUTLINE = (() => {
         .sort()
         .join("|");
       if (edges.has(key)) edges.delete(key);
-      else edges.set(key, [
-        { x: a.x - origin.x, y: a.y - origin.y },
-        { x: b.x - origin.x, y: b.y - origin.y },
-      ]);
+      else
+        edges.set(key, [
+          { x: a.x - origin.x, y: a.y - origin.y },
+          { x: b.x - origin.x, y: b.y - origin.y },
+        ]);
     });
   }
   return [...edges.values()];
 })();
 export default function WorldMap(props: Props) {
+  const terrainPainter = createTerrainPainter();
+  const gameTerrain = () => props.plan.settings.terrainStyle === "game";
+  const terrainColors = () => TERRAIN_COLORS[props.plan.settings.terrainStyle];
   let canvas!: HTMLCanvasElement;
   let width = 1,
     height = 1,
@@ -137,6 +134,7 @@ export default function WorldMap(props: Props) {
   let dragBoundary: Tile[] | null = null;
   let overview: {
     lookup: Props["terrainAt"];
+    appearance: Plan["settings"]["terrainStyle"];
     step: number;
     canvas: HTMLCanvasElement;
   } | null = null;
@@ -210,6 +208,7 @@ export default function WorldMap(props: Props) {
     if (
       !overview ||
       overview.lookup !== props.terrainAt ||
+      overview.appearance !== props.plan.settings.terrainStyle ||
       overview.step !== step
     ) {
       if (!overviewCells || overviewCells.lookup !== props.terrainAt) {
@@ -226,6 +225,15 @@ export default function WorldMap(props: Props) {
       const context = surface.getContext("2d");
       if (!context) return;
       const pixels = context.createImageData(surface.width, surface.height);
+      const palette = terrainColors();
+      const terrainRgb = [
+        palette.grass,
+        palette.mud,
+        palette.unknown,
+        palette.restricted,
+      ].map((color) =>
+        [1, 3, 5].map((start) => parseInt(color.slice(start, start + 2), 16)),
+      );
       for (let by = 0; by < surface.height; by++)
         for (let bx = 0; bx < surface.width; bx++) {
           let rank = 0;
@@ -249,7 +257,12 @@ export default function WorldMap(props: Props) {
           pixels.data[index + 3] = 255;
         }
       context.putImageData(pixels, 0, 0);
-      overview = { lookup: props.terrainAt, step, canvas: surface };
+      overview = {
+        lookup: props.terrainAt,
+        appearance: props.plan.settings.terrainStyle,
+        step,
+        canvas: surface,
+      };
     }
     ctx.save();
     ctx.imageSmoothingEnabled = false;
@@ -266,7 +279,7 @@ export default function WorldMap(props: Props) {
           Math.abs(p.y - c.y) > height / c.zoom / 2 + TILE_RADIUS * 2
         )
           continue;
-        ctx.fillStyle = terrainColors[tile.terrain];
+        ctx.fillStyle = terrainColors()[tile.terrain];
         path(ctx, points(tile));
         ctx.fill();
         if (c.zoom * TILE_WIDTH < 2) {
@@ -298,8 +311,10 @@ export default function WorldMap(props: Props) {
   function visiblePixel(pixel: { x: number; y: number }, margin = 80) {
     const c = camera();
     return (
-      Math.abs(pixel.x - c.x) <= width / c.zoom / 2 + TILE_RADIUS * 3 + margin / c.zoom &&
-      Math.abs(pixel.y - c.y) <= height / c.zoom / 2 + TILE_RADIUS * 3 + margin / c.zoom
+      Math.abs(pixel.x - c.x) <=
+        width / c.zoom / 2 + TILE_RADIUS * 3 + margin / c.zoom &&
+      Math.abs(pixel.y - c.y) <=
+        height / c.zoom / 2 + TILE_RADIUS * 3 + margin / c.zoom
     );
   }
   function footprintOutline(
@@ -310,7 +325,8 @@ export default function WorldMap(props: Props) {
     dashed = false,
     halo = false,
   ) {
-    const p = worldToPixel(tile), z = camera().zoom;
+    const p = worldToPixel(tile),
+      z = camera().zoom;
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -376,8 +392,22 @@ export default function WorldMap(props: Props) {
       if (!visiblePixel(p)) continue;
       const risky = warning.kind === "two-fit";
       if (z >= 0.4) {
-        footprintOutline(ctx, warning.tile, risky ? "#ff9b7d" : "#d8b77f88", risky ? 2.4 : 1.2, !risky, risky);
-        badge(ctx, risky ? "!" : "?", p.x + TILE_RADIUS * 1.8, p.y - TILE_RADIUS * 1.8, risky ? "#ffb194" : "#c7aa7f", risky ? 8 : 6);
+        footprintOutline(
+          ctx,
+          warning.tile,
+          risky ? "#ff9b7d" : "#d8b77f88",
+          risky ? 2.4 : 1.2,
+          !risky,
+          risky,
+        );
+        badge(
+          ctx,
+          risky ? "!" : "?",
+          p.x + TILE_RADIUS * 1.8,
+          p.y - TILE_RADIUS * 1.8,
+          risky ? "#ffb194" : "#c7aa7f",
+          risky ? 8 : 6,
+        );
       } else if (risky) {
         badge(ctx, "!", p.x, p.y, "#ffad8d", 6);
       } else {
@@ -392,10 +422,19 @@ export default function WorldMap(props: Props) {
       const p = worldToPixel(tile);
       if (!visiblePixel(p)) return;
       const color = index % 2 === 0 ? "#ffc19b" : "#e7b7ff";
-      const letter = index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
+      const letter =
+        index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
       footprintOutline(ctx, tile, color, 2.5, index % 2 === 1, true);
       if (z >= 0.4) {
-        label(ctx, `ENEMY ${letter}`, p.x, p.y - TILE_RADIUS * 2.5 - 12 / z, color);
+        // Keep the A/B badges when the plot anchor needs the same label space.
+        if (!props.plotGuide || distance(tile, props.plotGuide.anchor) > 4)
+          label(
+            ctx,
+            `ENEMY ${letter}`,
+            p.x,
+            p.y - TILE_RADIUS * 2.5 - 12 / z,
+            color,
+          );
         badge(ctx, letter, p.x, p.y, color);
       } else {
         const x = p.x + (index % 2 === 0 ? -13 : 13) / z,
@@ -422,13 +461,26 @@ export default function WorldMap(props: Props) {
     ctx.save();
     if (from && fromTile && visiblePixel(from)) {
       footprintOutline(ctx, fromTile, "#8de8efa3", 1.8, true, true);
-      if (z >= 0.4) label(ctx, "FROM", from.x, from.y + TILE_RADIUS * 2.5 + 13 / z, "#b3e2e4");
+      if (z >= 0.4)
+        label(
+          ctx,
+          "FROM",
+          from.x,
+          from.y + TILE_RADIUS * 2.5 + 13 / z,
+          "#b3e2e4",
+        );
     }
     if (visiblePixel(to)) {
       if (z >= 0.4) drawFootprint(ctx, preview.to, cyan, 0.12);
       footprintOutline(ctx, preview.to, cyan, 2.5, false, true);
       if (z < 0.4) badge(ctx, "+", to.x, to.y, cyan, 7);
-      label(ctx, preview.kind === "infill" ? "INFILL PREVIEW" : "MOVE PREVIEW", to.x, to.y - Math.max(TILE_RADIUS * 2.5, 10 / z) - 14 / z, cyan);
+      label(
+        ctx,
+        preview.kind === "infill" ? "INFILL PREVIEW" : "MOVE PREVIEW",
+        to.x,
+        to.y - Math.max(TILE_RADIUS * 2.5, 10 / z) - 14 / z,
+        cyan,
+      );
     }
     if (from) {
       const c = camera(),
@@ -436,23 +488,36 @@ export default function WorldMap(props: Props) {
         right = c.x + width / z / 2,
         top = c.y - height / z / 2,
         bottom = c.y + height / z / 2;
-      if (Math.max(from.x, to.x) < left || Math.min(from.x, to.x) > right || Math.max(from.y, to.y) < top || Math.min(from.y, to.y) > bottom) {
+      if (
+        Math.max(from.x, to.x) < left ||
+        Math.min(from.x, to.x) > right ||
+        Math.max(from.y, to.y) < top ||
+        Math.min(from.y, to.y) > bottom
+      ) {
         ctx.restore();
         return;
       }
-      const dx = to.x - from.x, dy = to.y - from.y,
+      const dx = to.x - from.x,
+        dy = to.y - from.y,
         length = Math.hypot(dx, dy);
       if (length > 1 / z) {
-        const ux = dx / length, uy = dy / length,
+        const ux = dx / length,
+          uy = dy / length,
           inset = Math.min(9 / z, length * 0.2),
           tip = { x: to.x - ux * inset, y: to.y - uy * inset },
           head = Math.min(8 / z, length * 0.3);
         ctx.beginPath();
         ctx.moveTo(from.x + ux * inset, from.y + uy * inset);
         ctx.lineTo(tip.x, tip.y);
-        ctx.moveTo(tip.x - ux * head - uy * head * 0.55, tip.y - uy * head + ux * head * 0.55);
+        ctx.moveTo(
+          tip.x - ux * head - uy * head * 0.55,
+          tip.y - uy * head + ux * head * 0.55,
+        );
         ctx.lineTo(tip.x, tip.y);
-        ctx.lineTo(tip.x - ux * head + uy * head * 0.55, tip.y - uy * head - ux * head * 0.55);
+        ctx.lineTo(
+          tip.x - ux * head + uy * head * 0.55,
+          tip.y - uy * head - ux * head * 0.55,
+        );
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
         ctx.strokeStyle = "#14201fe6";
@@ -486,7 +551,7 @@ export default function WorldMap(props: Props) {
       const byIndex = new Map(
         nodes.map((node) => [`${node.i},${node.j}`, node]),
       );
-      ctx.strokeStyle = "#a9dfc02e";
+      ctx.strokeStyle = gameTerrain() ? "#234e465e" : "#a9dfc02e";
       ctx.lineWidth = 0.8 / c.zoom;
       ctx.beginPath();
       for (const node of nodes) {
@@ -500,7 +565,7 @@ export default function WorldMap(props: Props) {
         }
       }
       ctx.stroke();
-      ctx.strokeStyle = "#b7e7caad";
+      ctx.strokeStyle = gameTerrain() ? "#21574de6" : "#b7e7caad";
       ctx.lineWidth = 1.1 / c.zoom;
       ctx.beginPath();
       const radius = 3.25 / c.zoom;
@@ -598,31 +663,18 @@ export default function WorldMap(props: Props) {
       x1 = Math.min(999, bottom.x + 3),
       y0 = Math.max(0, top.y - 3),
       y1 = Math.min(999, bottom.y + 3);
-    if (c.zoom > 0.3) {
-      for (let y = y0; y <= y1; y++)
-        for (let x = x0; x <= x1; x++) {
-          const tile = { x, y },
-            terrain = props.terrainAt(tile);
-          path(ctx, points(tile));
-          ctx.fillStyle = terrainColors[terrain];
-          ctx.fill();
-          if (props.plan.settings.showGrid) {
-            ctx.strokeStyle =
-              terrain === "restricted" ? "#604449" : "#52605755";
-            ctx.lineWidth = 0.6 / c.zoom;
-            ctx.stroke();
-          }
-          if (terrain === "restricted" && (x + y) % 3 === 0) {
-            const p = worldToPixel(tile);
-            ctx.strokeStyle = "#b7776d55";
-            ctx.lineWidth = 0.8 / c.zoom;
-            ctx.beginPath();
-            ctx.moveTo(p.x - 5, p.y - 4);
-            ctx.lineTo(p.x + 5, p.y + 4);
-            ctx.stroke();
-          }
-        }
-    } else drawOverview(ctx);
+    if (c.zoom > 0.3)
+      terrainPainter.draw(ctx, {
+        bounds: { minX: x0, maxX: x1, minY: y0, maxY: y1 },
+        appearance: props.plan.settings.terrainStyle,
+        terrainAt: props.terrainAt,
+        zoom: c.zoom,
+        showGrid: props.plan.settings.showGrid,
+        placements: props.plan.placements,
+      });
+    else drawOverview(ctx);
+    if (gameTerrain() && props.plan.settings.terrainProfile === "s1-standard")
+      drawGameLandmarks(ctx, { camera: c, width, height });
     // Exact outer envelope of the odd-row pointy-hex world, in the planner projection.
     ctx.strokeStyle = "#a9b5a16b";
     ctx.lineWidth = 2 / c.zoom;
@@ -670,6 +722,12 @@ export default function WorldMap(props: Props) {
       if (boundary.closed) ctx.closePath();
       const selected = boundary.id === props.selectedId,
         valid = vertices.every(inWorld);
+      // A dark under-stroke keeps drawn planning lines legible on the lighter ground.
+      if (gameTerrain()) {
+        ctx.strokeStyle = "#253b32b3";
+        ctx.lineWidth = 4 / c.zoom;
+        ctx.stroke();
+      }
       ctx.strokeStyle = !valid ? "#f6a090" : selected ? "#eef4d0" : "#d6ceae";
       ctx.lineWidth = 2 / c.zoom;
       ctx.setLineDash([7 / c.zoom, 5 / c.zoom]);
@@ -708,7 +766,13 @@ export default function WorldMap(props: Props) {
       const selected =
         p.id === props.selectedId ||
         Boolean(selectedClusterId && p.clusterId === selectedClusterId);
-      drawFootprint(ctx, tile, color, selected ? 0.78 : 0.52);
+      drawFootprint(
+        ctx,
+        tile,
+        color,
+        gameTerrain() ? (selected ? 0.93 : 0.82) : selected ? 0.78 : 0.52,
+      );
+      if (gameTerrain()) footprintOutline(ctx, tile, "#243e35", 1.25);
       const q = worldToPixel(tile);
       if (selected) {
         ctx.strokeStyle = "#f5f7dd";
@@ -808,6 +872,7 @@ export default function WorldMap(props: Props) {
     }
     const palace = worldToPixel({ x: 500, y: 500 });
     if (
+      !gameTerrain() &&
       Math.abs(palace.x - c.x) < width / c.zoom / 2 + 100 &&
       Math.abs(palace.y - c.y) < height / c.zoom / 2 + 100
     ) {

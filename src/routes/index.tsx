@@ -1311,7 +1311,13 @@ export default function Planner() {
         onChange={(e) => void importFile(e.currentTarget.files?.[0])}
       />
       <div class="workspace">
-        <main class="map-workspace" aria-label="Planning canvas">
+        <main
+          class="map-workspace"
+          classList={{
+            "terrain-game": plan().settings.terrainStyle === "game",
+          }}
+          aria-label="Planning canvas"
+        >
           <Show
             when={ready()}
             fallback={<div class="loading-map">Preparing the world…</div>}
@@ -2520,6 +2526,37 @@ export default function Planner() {
               </div>
               <div class="panel-section">
                 <div class="section-label">MAP DISPLAY</div>
+                <label class="field">
+                  <span>Terrain appearance</span>
+                  <select
+                    value={plan().settings.terrainStyle}
+                    aria-describedby="terrain-appearance-help"
+                    onChange={(e) =>
+                      setting(
+                        "terrainStyle",
+                        e.currentTarget.value as "game" | "tactical",
+                      )
+                    }
+                  >
+                    <option
+                      value="game"
+                      selected={plan().settings.terrainStyle === "game"}
+                    >
+                      Game terrain
+                    </option>
+                    <option
+                      value="tactical"
+                      selected={plan().settings.terrainStyle === "tactical"}
+                    >
+                      Tactical colors
+                    </option>
+                  </select>
+                </label>
+                <p class="field-help" id="terrain-appearance-help">
+                  Game colors and texture use the same exact planning grid. Cyan
+                  borders show grass/mud edges. Trees are decorative; hatching
+                  marks restricted tiles.
+                </p>
                 <Toggle
                   label="Hex grid"
                   detail="Exact odd-row world coordinates"

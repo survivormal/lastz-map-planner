@@ -20,6 +20,7 @@ Open [localhost:3100](http://127.0.0.1:3100). Production: `npm run build` then `
 ## Planning
 
 - Select, pan and zoom across the entire world; all placements snap to integer world coordinates.
+- **Layers → Terrain appearance** switches between game-style olive grass / sandy mud and the darker tactical view. Game terrain uses subtle texture, decorative trees and verified capital/turret reference markers. Restricted ground retains a separate hatch and boundary overlay; appearance never changes tile coordinates, exclusions or placement rules.
 - Place seven-tile HQs and alliance Food/Wood blockers. Name assignments and organize color-coded groups.
 - Use standard spacing (touching, one empty tile, two empty tiles), Mud optimized stagger `(3,1)`, or Grass wide stagger `(3,2)`.
 - In **Single headquarters** with a stagger/custom pattern, **Snap to plot** keeps each new HQ on one fixed lattice. The first valid HQ sets the plot anchor, or select an existing HQ and choose **Continue plot from this HQ**. Guide lines and hollow dots show the exact allowed centers; map clicks snap to the nearest center and then check terrain, spacing and collisions. A blocked center is rejected rather than silently shifting the formation.

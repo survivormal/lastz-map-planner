@@ -69,6 +69,7 @@ export const PlanSchema = z
       terrainProfile: z
         .enum(["s1-standard", "unverified"])
         .default("s1-standard"),
+      terrainStyle: z.enum(["game", "tactical"]).default("game"),
       strategyId: z.string().max(80).default("regular"),
       formation: z.enum(["single", "daisy", "grass", "mud"]).default("single"),
       rotation: z.number().int().min(0).max(5).default(0),
@@ -161,6 +162,7 @@ export function createPlan(planName = "Server 802 · SVS plan"): Plan {
     settings: {
       spacing: "tile",
       terrainProfile: "s1-standard",
+      terrainStyle: "game",
       strategyId: "regular",
       formation: "single",
       rotation: 0,
