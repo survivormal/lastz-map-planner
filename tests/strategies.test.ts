@@ -6,6 +6,7 @@ import {
   footprintInBoundary,
   inWorld,
   key,
+  normalizeBoundaryPoints,
   offset,
   tileInBoundary,
   toAxial,
@@ -21,11 +22,13 @@ import {
   serializeStrategyConfig,
   smartFillBoundary,
   StrategySchema,
+  validatedClosedBoundary,
   type SmartFillOptions,
   type Strategy,
 } from "../src/domain/strategies";
 import { nearestPlotSites } from "../src/domain/plot";
 import { orientVector } from "../src/domain/orientation";
+import { parsePlan } from "../src/domain/persistence";
 
 const anchor = { x: 500, y: 500 };
 const boundary = [
@@ -294,6 +297,133 @@ test("boundary and ID validation reject corrupt proposals", () => {
   );
   assert.throws(() => smartFillBoundary(options({ makeId: () => "same" })));
   assert.throws(() => smartFillBoundary(options({ anchor: { x: -1, y: 0 } })));
+});
+
+for (const [label, points] of [
+  ["repeated closing vertex", [...boundary, boundary[0]]],
+  [
+    "consecutive duplicate vertex",
+    [boundary[0], boundary[1], boundary[1], boundary[2], boundary[3]],
+  ],
+] as const) {
+  test(`legacy boundary with ${label} fills identically to the canonical polygon`, () => {
+    const expected = smartFillBoundary(options());
+    const actual = smartFillBoundary(options({ boundary: points }));
+    assert.deepEqual(actual, expected);
+    assert.deepEqual(boundaryFillAnchor(points), boundaryFillAnchor(boundary));
+  });
+}
+
+test("boundary cleanup removes only zero-length edges and preserves open line closures", () => {
+  const [a, b, c, d] = boundary;
+  const clicked = [a, a, b, b, c, d, a, a].map((point) =>
+    Object.freeze({ ...point }),
+  );
+  const snapshot = structuredClone(clicked);
+  const normalized = normalizeBoundaryPoints(Object.freeze(clicked));
+  assert.deepEqual(normalized, boundary);
+  assert.deepEqual(normalizeBoundaryPoints(clicked, false), [...boundary, a]);
+  assert.deepEqual(normalizeBoundaryPoints([]), []);
+  assert.deepEqual(normalizeBoundaryPoints([a, a]), [a]);
+  const internalRepeat = [a, b, a, c, d, a];
+  assert.deepEqual(normalizeBoundaryPoints(internalRepeat), [a, b, a, c, d]);
+  normalized[0].x++;
+  assert.deepEqual(clicked, snapshot);
+});
+
+test("saved legacy boundaries load and fill without rewriting the stored polygon", () => {
+  const saved = createPlan();
+  const points = [...boundary.flatMap((point) => [point, point]), boundary[0]];
+  saved.boundaries.push({
+    id: "legacy-wedge",
+    name: "Legacy wedge",
+    points,
+    closed: true,
+  });
+  const loaded = parsePlan(JSON.stringify(saved));
+  assert.ok(loaded.ok);
+  if (!loaded.ok) return;
+  const stored = loaded.value.boundaries[0].points;
+  assert.deepEqual(stored, points);
+  assert.deepEqual(
+    smartFillBoundary(options({ boundary: stored })),
+    smartFillBoundary(options()),
+  );
+  assert.deepEqual(stored, points);
+});
+
+test("normalized legacy concave boundaries preserve anchors, terrain, spacing and full fill results", () => {
+  const canonical = [
+    { x: 486, y: 486 },
+    { x: 514, y: 486 },
+    { x: 514, y: 496 },
+    { x: 496, y: 496 },
+    { x: 496, y: 514 },
+    { x: 486, y: 514 },
+  ];
+  const legacy = [
+    ...canonical.flatMap((point) => [point, point]),
+    canonical[0],
+    canonical[0],
+  ];
+  const snapshot = structuredClone(legacy);
+  const expectedAnchor = boundaryFillAnchor(canonical);
+  assert.deepEqual(boundaryFillAnchor(legacy), expectedAnchor);
+  assert.deepEqual(validatedClosedBoundary(legacy), canonical);
+  for (const definition of BUILTIN_STRATEGIES)
+    for (const mirrored of [false, true]) {
+      const strategy = { ...definition, rotation: 2 };
+      const fillOptions = {
+        strategy,
+        mirrored,
+        terrainAt: definition.terrain === "mud" ? mud : grass,
+      };
+      const expected = smartFillBoundary(
+        options({ ...fillOptions, boundary: canonical }),
+      );
+      const actual = smartFillBoundary(
+        options({ ...fillOptions, boundary: legacy }),
+      );
+      assert.ok(actual.accepted > 0);
+      assert.deepEqual(actual, expected);
+      assert.ok(
+        actual.placements.every((tile) => footprintInBoundary(tile, canonical)),
+      );
+      for (let i = 0; i < actual.placements.length; i++)
+        for (let j = 0; j < i; j++)
+          assert.ok(
+            distance(actual.placements[i], actual.placements[j]) >=
+              3 + strategy.minGap,
+          );
+    }
+  assert.deepEqual(legacy, snapshot);
+});
+
+test("legacy cleanup retains raw coordinate and count limits and rejects real degeneracy or self-touch", () => {
+  const [a, b, c, d] = boundary;
+  const atLimit = [...boundary, ...Array.from({ length: 1996 }, () => d)];
+  assert.equal(atLimit.length, 2000);
+  assert.deepEqual(
+    smartFillBoundary(options({ boundary: atLimit })),
+    smartFillBoundary(options()),
+  );
+  assert.deepEqual(boundaryFillAnchor(atLimit), boundaryFillAnchor(boundary));
+  const invalidCases = [
+    [...atLimit, d],
+    [a, a, a, a],
+    [a, b, b, a],
+    [a, b, a, c, d, a],
+    [a, c, b, d, a],
+    [a, b, c, a, d, { x: 480, y: 500 }, a],
+    [...boundary, { x: -1, y: 500 }, { x: -1, y: 500 }, a],
+    [...boundary, { x: Number.NaN, y: 500 }, a],
+    [...boundary, { x: 500.5, y: 500 }, a],
+  ];
+  for (const points of invalidCases) {
+    assert.throws(() => validatedClosedBoundary(points));
+    assert.throws(() => boundaryFillAnchor(points));
+    assert.throws(() => smartFillBoundary(options({ boundary: points })));
+  }
 });
 
 test("boundary anchors stay inside concave and world-edge polygons without assuming usable terrain", () => {

@@ -4,6 +4,7 @@ import {
   footprint,
   footprintInBoundary,
   inWorld,
+  normalizeBoundaryPoints,
   pixelToWorld,
   pointInPolygon,
   worldToPixel,
@@ -188,16 +189,22 @@ function boundedInteger(value: number, name: string, maximum: number): number {
   return value;
 }
 
-function validateBoundary(boundary: readonly Tile[]): void {
+/** Normalize harmless repeated clicks, then validate the complete closed polygon. */
+export function validatedClosedBoundary(points: readonly Tile[]): Tile[] {
   if (
-    boundary.length < 3 ||
-    boundary.length > 2000 ||
-    boundary.some((tile) => !inWorld(tile))
+    points.length < 3 ||
+    points.length > 2000 ||
+    points.some((tile) => !inWorld(tile))
   ) {
     throw new RangeError(
       "Choose a closed boundary with 3–2,000 valid world coordinates.",
     );
   }
+  const boundary = normalizeBoundaryPoints(points);
+  if (boundary.length < 3)
+    throw new RangeError(
+      "Choose a closed boundary with at least three distinct vertices.",
+    );
   const polygon = boundary.map((point) => worldToPixel(point));
   let area = 0;
   for (let i = 0; i < polygon.length; i++) {
@@ -236,11 +243,12 @@ function validateBoundary(boundary: readonly Tile[]): void {
       }
     }
   }
+  return boundary;
 }
 
 /** A phase origin near the polygon's center; terrain and footprint legality are checked by fill. */
 export function boundaryFillAnchor(boundary: readonly Tile[]): Tile {
-  validateBoundary(boundary);
+  boundary = validatedClosedBoundary(boundary);
   const polygon = boundary.map((tile) => worldToPixel(tile));
   let area = 0,
     sumX = 0,
@@ -318,7 +326,7 @@ export function smartFillBoundary(options: SmartFillOptions): SmartFillResult {
   const strategy = StrategySchema.parse(options.strategy);
   if (!inWorld(options.anchor))
     throw new RangeError("The anchor must be a valid world coordinate.");
-  validateBoundary(options.boundary);
+  const boundary = validatedClosedBoundary(options.boundary);
   if (!options.groupId.trim()) throw new RangeError("A group is required.");
   const maxCandidates = boundedInteger(
     options.maxCandidates ?? 10_000,
@@ -329,7 +337,7 @@ export function smartFillBoundary(options: SmartFillOptions): SmartFillResult {
   // from turning a bounded candidate count into an unbounded browser pause.
   const workLimit = Math.min(
     maxCandidates,
-    Math.max(100, Math.floor(400_000 / options.boundary.length)),
+    Math.max(100, Math.floor(400_000 / boundary.length)),
   );
   const maxPlacements = boundedInteger(
     options.maxPlacements ?? 1_000,
@@ -345,18 +353,18 @@ export function smartFillBoundary(options: SmartFillOptions): SmartFillResult {
       orientVector(vector, strategy.rotation, options.mirrored),
     ) as [Axial, Axial],
   };
-  const polygon = options.boundary.map((tile) => worldToPixel(tile));
+  const polygon = boundary.map((tile) => worldToPixel(tile));
   const origin = pointInPolygon(worldToPixel(options.anchor), polygon)
     ? options.anchor
-    : boundaryFillAnchor(options.boundary);
+    : boundaryFillAnchor(boundary);
   const candidates = nearestPlotSites(
     lattice,
     {
       // An odd-row vertex can extend half a tile beyond an even-row vertex's offset X.
-      minX: Math.min(...options.boundary.map((tile) => tile.x)) - 1,
-      maxX: Math.max(...options.boundary.map((tile) => tile.x)) + 1,
-      minY: Math.min(...options.boundary.map((tile) => tile.y)),
-      maxY: Math.max(...options.boundary.map((tile) => tile.y)),
+      minX: Math.min(...boundary.map((tile) => tile.x)) - 1,
+      maxX: Math.max(...boundary.map((tile) => tile.x)) + 1,
+      minY: Math.min(...boundary.map((tile) => tile.y)),
+      maxY: Math.max(...boundary.map((tile) => tile.y)),
     },
     origin,
     workLimit,
@@ -390,7 +398,7 @@ export function smartFillBoundary(options: SmartFillOptions): SmartFillResult {
   ) {
     result.considered++;
     const center = candidates.sites[cursor].tile;
-    if (!inWorld(center) || !footprintInBoundary(center, options.boundary)) {
+    if (!inWorld(center) || !footprintInBoundary(center, boundary)) {
       result.rejected.boundary++;
       continue;
     }

@@ -70,6 +70,8 @@ import {
   regularStrategy,
   smartFillBoundary,
   boundaryFillAnchor,
+  validatedClosedBoundary,
+  normalizeBoundaryPoints,
   worldToPixel,
   type Boundary,
   offset,
@@ -801,7 +803,22 @@ export default function Planner() {
       return;
     }
     if (tool() === "boundary") {
-      setDraft((d) => [...d, tile]);
+      const points = draft();
+      const sameTile = (point?: Tile) =>
+        point?.x === tile.x && point.y === tile.y;
+      // A second click on the current corner is harmless; clicking the start closes the ring.
+      if (sameTile(points.at(-1))) return;
+      if (sameTile(points[0])) {
+        finishBoundary(true);
+        return;
+      }
+      if (points.length >= 2000) {
+        notify(
+          "A boundary can have at most 2,000 corners. Undo a point or finish this boundary.",
+        );
+        return;
+      }
+      setDraft([...points, tile]);
       return;
     }
     if (tool() === "measure") {
@@ -1025,23 +1042,37 @@ export default function Planner() {
     }
   }
   function finishBoundary(closed: boolean) {
-    if (draft().length < (closed ? 3 : 2)) {
+    let points = normalizeBoundaryPoints(draft(), closed);
+    if (points.length < (closed ? 3 : 2)) {
       notify(
         closed
-          ? "Add at least three points for a wedge."
-          : "Add at least two points.",
+          ? "Add at least three different corners for a wedge."
+          : "Add at least two different points.",
       );
       return;
     }
+    if (closed) {
+      try {
+        points = validatedClosedBoundary(points);
+      } catch (error) {
+        notify(
+          `${error instanceof Error ? error.message : "This boundary cannot be closed."} Use Undo point to adjust the outline.`,
+        );
+        return;
+      }
+    }
     const id = crypto.randomUUID();
-    commit((p) =>
-      p.boundaries.push({
-        id,
-        name: `${closed ? "Wedge" : "Boundary"} ${p.boundaries.length + 1}`,
-        points: draft(),
-        closed,
-      }),
-    );
+    if (
+      !commit((p) =>
+        p.boundaries.push({
+          id,
+          name: `${closed ? "Wedge" : "Boundary"} ${p.boundaries.length + 1}`,
+          points,
+          closed,
+        }),
+      )
+    )
+      return;
     setDraft([]);
     setSelected(id);
     setTool("select");
@@ -1735,11 +1766,19 @@ export default function Planner() {
             )}
           </Show>
           <Show when={tool() === "boundary"}>
-            <div class="floating-instruction">
+            <div class="floating-instruction boundary-instruction">
               <Pentagon size={16} />
               <span>
-                Click the corners of your wedge. <b>{draft().length} points</b>
+                Click corners, then the first corner to close.{" "}
+                <b>{draft().length} points</b>
               </span>
+              <button
+                class="text-button"
+                disabled={!draft().length}
+                onClick={() => setDraft((points) => points.slice(0, -1))}
+              >
+                Undo point
+              </button>
               <button
                 class="text-button"
                 disabled={draft().length < 3}

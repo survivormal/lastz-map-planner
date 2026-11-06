@@ -702,6 +702,9 @@ a {
   font-size: 11px;
   white-space: nowrap;
 }
+.boundary-instruction .text-button {
+  min-height: 44px;
+}
 .placement-feedback {
   position: absolute;
   bottom: 166px;

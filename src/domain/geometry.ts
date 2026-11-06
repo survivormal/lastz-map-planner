@@ -166,6 +166,31 @@ export function tileInBoundary(tile: Tile, boundary: readonly Tile[]): boolean {
   );
 }
 
+/**
+ * Drop zero-length edges without changing the path. Closed polygons store an implicit
+ * closing edge, so a repeated terminal start point is redundant. Interior repeats are
+ * deliberately retained for the caller's self-intersection validation.
+ */
+export function normalizeBoundaryPoints(
+  points: readonly Tile[],
+  closed = true,
+): Tile[] {
+  const normalized: Tile[] = [];
+  for (const point of points) {
+    const previous = normalized[normalized.length - 1];
+    if (!previous || previous.x !== point.x || previous.y !== point.y)
+      normalized.push({ ...point });
+  }
+  while (
+    closed &&
+    normalized.length > 1 &&
+    normalized[0].x === normalized[normalized.length - 1].x &&
+    normalized[0].y === normalized[normalized.length - 1].y
+  )
+    normalized.pop();
+  return normalized;
+}
+
 /** Full polygon containment, including edges that pass through concave notches. */
 export function polygonContainsPolygon(
   outer: readonly Pixel[],
