@@ -66,7 +66,7 @@ type CenterFacts = {
 };
 
 /** A placement blocks exactly nineteen possible radius-one HQ centers. */
-class SafetyIndex {
+export class SafetyIndex {
   readonly placements = new Map<string, Placement>();
   private readonly centers = new Map<string, Set<string>>();
   private readonly blockedCenters = new Map<string, Set<string>>();
@@ -259,7 +259,7 @@ class SafetyIndex {
   }
 }
 
-function auditIndex(
+export function auditIndex(
   index: SafetyIndex,
   allowUnknown: boolean,
 ): PlacementSafetyAudit {

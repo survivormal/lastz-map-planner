@@ -13,6 +13,24 @@ import type { Plan } from "../domain/schema";
 import type { SmartFillResult, Strategy } from "../domain/strategies";
 import "./boundary-fill.css";
 
+type OptimizationMetrics = {
+  twoFit: number;
+  openCenters: number;
+  uncertain: number;
+  invalid: number;
+};
+
+export type BoundaryOptimizationSummary = {
+  status: "resolved" | "improved" | "unchanged" | "blocked";
+  before: OptimizationMetrics;
+  after: OptimizationMetrics;
+  moved: number;
+  added: number;
+  truncated: boolean;
+  reason?: string;
+  seedCount: number;
+};
+
 export type BoundaryFillPanelProps = {
   strategies: readonly Strategy[];
   strategyId: string;
@@ -24,6 +42,9 @@ export type BoundaryFillPanelProps = {
   anchorY: string;
   hasPlotAnchor: boolean;
   pickingAnchor: boolean;
+  autoTighten: boolean;
+  optimizing: boolean;
+  optimization: BoundaryOptimizationSummary | null;
   result: SmartFillResult | null;
   safety: {
     status: "checking" | "ready" | "error";
@@ -46,6 +67,8 @@ export type BoundaryFillPanelProps = {
   onApply: () => void;
   onDiscard: () => void;
   onReviewWarnings: () => void;
+  onAutoTighten: (value: boolean) => void;
+  onCancelOptimization: () => void;
 };
 
 export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
@@ -54,6 +77,22 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
   const strategy = () =>
     props.strategies.find((value) => value.id === props.strategyId);
   const ready = () => props.safety?.status === "ready";
+  const optimizationReady = () =>
+    props.optimization &&
+    props.optimization.status !== "blocked" &&
+    props.optimization.moved + props.optimization.added > 0;
+  const optimizationHeading = () => {
+    const result = props.optimization;
+    if (!result) return "Boundary comparison";
+    if (result.status === "blocked") return "Optimization needs review";
+    if (result.after.invalid || result.after.uncertain)
+      return "Terrain or placements need review";
+    if (result.truncated) return "Search limited · review remaining area";
+    if (result.status === "unchanged") return "No improving layout found";
+    if (result.after.twoFit) return "Layout improved · loss warnings remain";
+    if (result.after.openCenters) return "Open HQ centers remain";
+    return "No openings found in this boundary";
+  };
 
   return (
     <section class="boundary-fill" aria-label="Boundary auto-fill">
@@ -61,189 +100,348 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
         BOUNDARY AUTO-FILL <Layers size={14} aria-hidden="true" />
       </div>
       <p class="field-help">
-        Fill this closed area with individual HQs. Every seven-tile footprint
-        stays inside the boundary; existing placements stay put.
+        {props.autoTighten
+          ? "Fill and tighten this area automatically. HQs wholly inside may move; their names and assignments stay attached. Outside HQs and blockers stay fixed."
+          : "Fill this closed area with individual HQs. Every seven-tile footprint stays inside the boundary; existing placements stay put."}
       </p>
-      <label class="field">
-        <span>Fill strategy</span>
-        <select
-          value={props.strategyId}
-          onChange={(event) => props.onStrategy(event.currentTarget.value)}
-        >
-          <For each={props.strategies}>
-            {(option) => (
-              <option
-                value={option.id}
-                selected={props.strategyId === option.id}
-              >
-                {option.name}
-              </option>
-            )}
-          </For>
-        </select>
-      </label>
-      <p class="field-help boundary-fill-rule">
-        {strategy()?.minGap ?? 0} empty tiles between HQ footprints ·{" "}
-        {strategy()?.terrain === "any"
-          ? "Grass or mud"
-          : strategy()?.terrain === "mud"
-            ? "Entire HQ on mud"
-            : "Entire HQ on grass"}
-      </p>
-      <label class="field">
-        <span>Assign to group</span>
-        <select
-          value={props.groupId}
-          onChange={(event) => props.onGroup(event.currentTarget.value)}
-        >
-          <For each={props.groupOptions}>
-            {(option) => (
-              <option value={option.id} selected={props.groupId === option.id}>
-                {option.name}
-              </option>
-            )}
-          </For>
-        </select>
-      </label>
-
-      <fieldset class="boundary-fill-orientation">
-        <legend>Pattern orientation</legend>
-        <output class="boundary-fill-angle" aria-live="polite">
-          {degrees()}°{props.mirrored ? " · Flipped" : ""}
-        </output>
-        <div class="boundary-fill-turns">
+      <fieldset class="boundary-fill-controls" disabled={props.optimizing}>
+        <div class="boundary-fill-mode" role="group" aria-label="Fill method">
           <button
             type="button"
-            aria-label="Rotate fill counterclockwise 60 degrees"
-            onClick={() => props.onRotate(-1)}
+            aria-pressed={props.autoTighten}
+            onClick={() => props.onAutoTighten(true)}
           >
-            <RotateCcw size={15} aria-hidden="true" /> −60°
+            <Shield size={15} aria-hidden="true" /> Auto-tighten
           </button>
           <button
             type="button"
-            aria-label="Rotate fill clockwise 60 degrees"
-            onClick={() => props.onRotate(1)}
+            aria-pressed={!props.autoTighten}
+            onClick={() => props.onAutoTighten(false)}
           >
-            <RotateCw size={15} aria-hidden="true" /> +60°
-          </button>
-          <button
-            type="button"
-            aria-pressed={props.mirrored}
-            onClick={props.onFlip}
-          >
-            <FlipVertical2 size={15} aria-hidden="true" /> Flip stagger
-          </button>
-          <button
-            type="button"
-            disabled={degrees() === 0 && !props.mirrored}
-            onClick={props.onReset}
-          >
-            Reset
+            <Layers size={15} aria-hidden="true" /> Exact strategy
           </button>
         </div>
-        <p class="field-help">
-          A regular stagger repeats every 60°. Flip changes its slant.
+        <Show when={props.autoTighten}>
+          <p class="field-help">
+            Starts with your chosen pattern, then adjusts and adds HQs to close
+            gaps. HQs may touch or sit off the plot; terrain and the full
+            boundary footprint remain hard limits.
+          </p>
+        </Show>
+        <label class="field">
+          <span>
+            {props.autoTighten ? "Preferred strategy" : "Fill strategy"}
+          </span>
+          <select
+            value={props.strategyId}
+            onChange={(event) => props.onStrategy(event.currentTarget.value)}
+          >
+            <For each={props.strategies}>
+              {(option) => (
+                <option
+                  value={option.id}
+                  selected={props.strategyId === option.id}
+                >
+                  {option.name}
+                </option>
+              )}
+            </For>
+          </select>
+        </label>
+        <p class="field-help boundary-fill-rule">
+          {props.autoTighten ? "Starting pattern: " : ""}
+          {strategy()?.minGap ?? 0} empty tiles between HQ footprints ·{" "}
+          {strategy()?.terrain === "any"
+            ? "Grass or mud"
+            : strategy()?.terrain === "mud"
+              ? props.autoTighten
+                ? "At least one HQ tile on mud; rest may be grass"
+                : "Entire HQ on mud"
+              : "Entire HQ on grass"}
         </p>
-      </fieldset>
-
-      <fieldset class="boundary-fill-anchor" aria-describedby={`${id}-anchor`}>
-        <legend>Pattern anchor</legend>
-        <div class="coordinate-fields">
-          <label>
-            X
-            <input
-              aria-label="Fill anchor X"
-              inputmode="numeric"
-              value={props.anchorX}
-              onInput={(event) => props.onAnchorX(event.currentTarget.value)}
-            />
-          </label>
-          <label>
-            Y
-            <input
-              aria-label="Fill anchor Y"
-              inputmode="numeric"
-              value={props.anchorY}
-              onInput={(event) => props.onAnchorY(event.currentTarget.value)}
-            />
-          </label>
-        </div>
-        <div class="boundary-fill-anchor-actions">
-          <button class="button subtle" type="button" onClick={props.onCenter}>
-            Center in boundary
-          </button>
-          <button
-            class="button subtle"
-            type="button"
-            onClick={props.onUsePlot}
-            disabled={!props.hasPlotAnchor}
-            title={
-              props.hasPlotAnchor
-                ? "Continue the spacing from your current plot anchor"
-                : "Set a single-HQ plot anchor first"
-            }
+        <Show when={props.autoTighten && strategy()?.terrain === "mud"}>
+          <p class="field-help">
+            Planning rule: mud HQs may straddle the grass edge. The drawn
+            boundary still contains the full footprint. Existing pure-grass HQs
+            stay on grass.
+          </p>
+        </Show>
+        <label class="field">
+          <span>
+            {props.autoTighten ? "Group for new HQs" : "Assign to group"}
+          </span>
+          <select
+            value={props.groupId}
+            onChange={(event) => props.onGroup(event.currentTarget.value)}
           >
-            Use plot anchor
+            <For each={props.groupOptions}>
+              {(option) => (
+                <option
+                  value={option.id}
+                  selected={props.groupId === option.id}
+                >
+                  {option.name}
+                </option>
+              )}
+            </For>
+          </select>
+        </label>
+
+        <fieldset class="boundary-fill-orientation">
+          <legend>Pattern orientation</legend>
+          <output class="boundary-fill-angle" aria-live="polite">
+            {degrees()}°{props.mirrored ? " · Flipped" : ""}
+          </output>
+          <div class="boundary-fill-turns">
+            <button
+              type="button"
+              aria-label="Rotate fill counterclockwise 60 degrees"
+              onClick={() => props.onRotate(-1)}
+            >
+              <RotateCcw size={15} aria-hidden="true" /> −60°
+            </button>
+            <button
+              type="button"
+              aria-label="Rotate fill clockwise 60 degrees"
+              onClick={() => props.onRotate(1)}
+            >
+              <RotateCw size={15} aria-hidden="true" /> +60°
+            </button>
+            <button
+              type="button"
+              aria-pressed={props.mirrored}
+              onClick={props.onFlip}
+            >
+              <FlipVertical2 size={15} aria-hidden="true" /> Flip stagger
+            </button>
+            <button
+              type="button"
+              disabled={degrees() === 0 && !props.mirrored}
+              onClick={props.onReset}
+            >
+              Reset
+            </button>
+          </div>
+          <p class="field-help">
+            A regular stagger repeats every 60°. Flip changes its slant.
+          </p>
+        </fieldset>
+
+        <fieldset
+          class="boundary-fill-anchor"
+          aria-describedby={`${id}-anchor`}
+        >
+          <legend>Pattern anchor</legend>
+          <div class="coordinate-fields">
+            <label>
+              X
+              <input
+                aria-label="Fill anchor X"
+                inputmode="numeric"
+                value={props.anchorX}
+                onInput={(event) => props.onAnchorX(event.currentTarget.value)}
+              />
+            </label>
+            <label>
+              Y
+              <input
+                aria-label="Fill anchor Y"
+                inputmode="numeric"
+                value={props.anchorY}
+                onInput={(event) => props.onAnchorY(event.currentTarget.value)}
+              />
+            </label>
+          </div>
+          <div class="boundary-fill-anchor-actions">
+            <button
+              class="button subtle"
+              type="button"
+              onClick={props.onCenter}
+            >
+              Center in boundary
+            </button>
+            <button
+              class="button subtle"
+              type="button"
+              onClick={props.onUsePlot}
+              disabled={!props.hasPlotAnchor}
+              title={
+                props.hasPlotAnchor
+                  ? "Continue the spacing from your current plot anchor"
+                  : "Set a single-HQ plot anchor first"
+              }
+            >
+              Use plot anchor
+            </button>
+          </div>
+          <button
+            class="button subtle full boundary-fill-pick"
+            type="button"
+            aria-pressed={props.pickingAnchor}
+            onClick={props.onPickAnchor}
+          >
+            <MapPin size={15} aria-hidden="true" />
+            {props.pickingAnchor
+              ? "Cancel picking anchor"
+              : "Pick anchor on map"}
           </button>
-        </div>
+          <p id={`${id}-anchor`} class="field-help">
+            {props.pickingAnchor
+              ? "Click a tile to align the pattern. This does not place an HQ."
+              : props.autoTighten
+                ? "Sets the starting alignment. Auto-tighten can adjust individual positions while keeping every full HQ inside the boundary."
+                : "The anchor aligns the repeating pattern; it can sit outside the area. Use your plot anchor to continue an existing stagger."}
+          </p>
+        </fieldset>
+
         <button
-          class="button subtle full boundary-fill-pick"
+          class="button subtle full"
           type="button"
-          aria-pressed={props.pickingAnchor}
-          onClick={props.onPickAnchor}
+          onClick={props.onPreview}
+          disabled={props.pickingAnchor}
         >
-          <MapPin size={15} aria-hidden="true" />
-          {props.pickingAnchor ? "Cancel picking anchor" : "Pick anchor on map"}
+          <Layers size={15} aria-hidden="true" />
+          {props.autoTighten
+            ? "Optimize boundary fill"
+            : props.result
+              ? "Rebuild fill preview"
+              : "Preview auto-fill"}
         </button>
-        <p id={`${id}-anchor`} class="field-help">
-          {props.pickingAnchor
-            ? "Click a tile to align the pattern. This does not place an HQ."
-            : "The anchor aligns the repeating pattern; it can sit outside the area. Use your plot anchor to continue an existing stagger."}
-        </p>
       </fieldset>
 
-      <button
-        class="button subtle full"
-        type="button"
-        onClick={props.onPreview}
-        disabled={props.pickingAnchor}
-      >
-        <Layers size={15} aria-hidden="true" />
-        {props.result ? "Rebuild fill preview" : "Preview auto-fill"}
-      </button>
+      <Show when={props.optimizing}>
+        <div class="boundary-fill-progress">
+          <div role="status" aria-live="polite">
+            <strong>Comparing boundary layouts…</strong>
+            <p>
+              Testing gaps and HQ-loss openings, then tightening the complete
+              layout. Your plan stays unchanged until you apply the preview.
+            </p>
+          </div>
+          <button
+            class="button subtle full"
+            type="button"
+            onClick={props.onCancelOptimization}
+          >
+            Cancel optimization
+          </button>
+        </div>
+      </Show>
 
-      <Show when={props.result}>
+      <Show when={!props.optimizing && props.result}>
         {(result) => (
           <div class="boundary-fill-result" aria-live="polite">
             <div class="boundary-fill-result-heading">
               <strong>{result().accepted}</strong>
-              <span>HQ positions fit</span>
+              <span>
+                {props.autoTighten
+                  ? "boundary HQs in preview"
+                  : "HQ positions fit"}
+              </span>
               <small>PREVIEW ONLY</small>
             </div>
-            <p class="field-help">
-              Skipped: {result().rejected.boundary} outside boundary ·{" "}
-              {result().rejected.terrain} terrain ·{" "}
-              {result().rejected.collision + result().rejected.spacing}{" "}
-              collision / spacing.
-            </p>
-            <Show when={!result().accepted}>
+            <Show when={props.autoTighten && props.optimization}>
+              {(optimization) => (
+                <div class="boundary-fill-optimization">
+                  <h3>{optimizationHeading()}</h3>
+                  <p class="field-help">
+                    {optimization().moved} assigned HQs moved ·{" "}
+                    {optimization().added} new HQs added
+                  </p>
+                  <p class="field-help">
+                    Compared with the chosen strategy’s starting fill of{" "}
+                    {optimization().seedCount} HQs, including existing
+                    assignments inside the boundary.
+                  </p>
+                  <table aria-label="Boundary optimization comparison">
+                    <thead>
+                      <tr>
+                        <th scope="col">Inside this boundary</th>
+                        <th scope="col">Start</th>
+                        <th scope="col">Preview</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <th scope="row">Two-HQ loss warnings</th>
+                        <td>{optimization().before.twoFit}</td>
+                        <td
+                          classList={{
+                            "has-risk": optimization().after.twoFit > 0,
+                          }}
+                        >
+                          {optimization().after.twoFit}
+                        </td>
+                      </tr>
+                      <tr>
+                        <th scope="row">Open HQ centers</th>
+                        <td>{optimization().before.openCenters}</td>
+                        <td
+                          classList={{
+                            "has-openings":
+                              optimization().after.openCenters > 0,
+                          }}
+                        >
+                          {optimization().after.openCenters}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p class="field-help">
+                    Open centers are candidate locations that may overlap, not
+                    the number of enemies that fit at once. These counts cover
+                    this boundary, not the entire map.
+                  </p>
+                  <Show when={optimization().reason}>
+                    <p class="boundary-fill-notice">{optimization().reason}</p>
+                  </Show>
+                  <Show when={optimization().truncated}>
+                    <p class="boundary-fill-notice">
+                      Search limit reached. This is the best layout found in the
+                      search; other improvements may exist.
+                    </p>
+                  </Show>
+                  <Show
+                    when={
+                      optimization().after.twoFit > 0 ||
+                      optimization().after.openCenters > 0
+                    }
+                  >
+                    <p class="boundary-fill-notice">
+                      Openings remain. Try enlarging the boundary to give nearby
+                      HQs room to adjust, confirm the terrain, and run
+                      auto-tighten again.
+                    </p>
+                  </Show>
+                </div>
+              )}
+            </Show>
+            <Show when={!props.autoTighten && !props.optimization}>
               <p class="field-help">
-                Try another anchor or strategy, or enlarge the boundary. The
-                full HQ footprint must fit on permitted terrain.
+                Skipped: {result().rejected.boundary} outside boundary ·{" "}
+                {result().rejected.terrain} terrain ·{" "}
+                {result().rejected.collision + result().rejected.spacing}{" "}
+                collision / spacing.
               </p>
-            </Show>
-            <Show when={result().provisional}>
-              <p class="boundary-fill-notice">
-                {result().provisional} proposed positions use provisional
-                terrain.
-              </p>
-            </Show>
-            <Show when={result().truncated}>
-              <p class="boundary-fill-notice">
-                Partial preview. Limited to 250 HQs / 4,000 candidates, with
-                lower limits for complex boundaries or a nearly full plan. Fill
-                smaller areas to check the rest.
-              </p>
+              <Show when={!result().accepted}>
+                <p class="field-help">
+                  Try another anchor or strategy, or enlarge the boundary. The
+                  full HQ footprint must fit on permitted terrain.
+                </p>
+              </Show>
+              <Show when={result().provisional}>
+                <p class="boundary-fill-notice">
+                  {result().provisional} proposed positions use provisional
+                  terrain.
+                </p>
+              </Show>
+              <Show when={result().truncated}>
+                <p class="boundary-fill-notice">
+                  Partial preview. Limited to 250 HQs / 4,000 candidates, with
+                  lower limits for complex boundaries or a nearly full plan.
+                  Fill smaller areas to check the rest.
+                </p>
+              </Show>
             </Show>
 
             <Show when={props.safety}>
@@ -259,7 +457,9 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
                 >
                   <div class="boundary-fill-safety-heading">
                     <Shield size={15} aria-hidden="true" />
-                    <strong>HQ loss check</strong>
+                    <strong>
+                      {props.autoTighten ? "Layout check" : "HQ loss check"}
+                    </strong>
                   </div>
                   <Show when={safety().status === "checking"}>
                     <p>Checking the complete proposed layout…</p>
@@ -284,19 +484,33 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
                         </p>
                       }
                     >
+                      <Show when={!props.autoTighten}>
+                        <Show
+                          when={safety().proposedTwoFit > 0}
+                          fallback={
+                            <Show when={!safety().uncertain}>
+                              <p>
+                                No two-HQ losses found among the proposed HQs.
+                              </p>
+                            </Show>
+                          }
+                        >
+                          <p>
+                            <b>
+                              {safety().proposedTwoFit} proposed{" "}
+                              {safety().proposedTwoFit === 1 ? "HQ" : "HQs"}
+                            </b>{" "}
+                            {safety().uncertain ? "could" : "can"} each open
+                            room for two enemies if lost.
+                          </p>
+                        </Show>
+                      </Show>
                       <Show
-                        when={safety().proposedTwoFit > 0}
-                        fallback={
-                          <Show when={!safety().uncertain}>
-                            <p>
-                              No two-HQ losses found among the proposed HQs.
-                            </p>
-                          </Show>
-                        }
+                        when={props.autoTighten && safety().proposedTwoFit > 0}
                       >
                         <p>
                           <b>
-                            {safety().proposedTwoFit} proposed{" "}
+                            {safety().proposedTwoFit} boundary{" "}
                             {safety().proposedTwoFit === 1 ? "HQ" : "HQs"}
                           </b>{" "}
                           {safety().uncertain ? "could" : "can"} each open room
@@ -305,11 +519,15 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
                       </Show>
                       <Show when={safety().existingTwoFit > 0}>
                         <p>
-                          {safety().existingTwoFit} existing{" "}
+                          {safety().existingTwoFit}{" "}
+                          {props.autoTighten ? "outside" : "existing"}{" "}
                           {safety().existingTwoFit === 1
                             ? "HQ also has"
                             : "HQs also have"}{" "}
                           loss warnings in this layout.
+                          {props.autoTighten
+                            ? " Outside HQs remain fixed and are not included in the boundary comparison."
+                            : ""}
                         </p>
                       </Show>
                       <Show when={safety().proposedTwoFit > 0}>
@@ -334,6 +552,9 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
                   <p class="boundary-fill-safety-note">
                     Boundary lines limit the fill; enemies can cross them.
                     Checks assume every other shown building remains.
+                    {props.autoTighten
+                      ? " This checks one HQ lost at a time, not simultaneous losses."
+                      : ""}
                   </p>
                 </div>
               )}
@@ -342,10 +563,20 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
             <button
               class="button primary full"
               type="button"
-              disabled={!result().accepted || !ready()}
+              disabled={
+                !ready() ||
+                (props.autoTighten ? !optimizationReady() : !result().accepted)
+              }
               onClick={props.onApply}
             >
-              Apply {result().accepted} HQ positions
+              {props.autoTighten
+                ? props.optimization &&
+                  (props.optimization.after.twoFit > 0 ||
+                    props.optimization.after.openCenters > 0 ||
+                    props.optimization.truncated)
+                  ? "Apply best found layout"
+                  : "Apply optimized layout"
+                : `Apply ${result().accepted} HQ positions`}
             </button>
             <button
               class="button subtle full"
@@ -355,9 +586,9 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
               Discard preview
             </button>
             <p class="field-help">
-              Adds named assignments to the plan. Undo removes the whole fill.
-              To adjust an exposed edge after applying, select a coral HQ and
-              choose Find tighter placements.
+              {props.autoTighten
+                ? "Applies the complete layout in one step, preserving existing names and assignments. Undo restores the previous layout."
+                : "Adds named assignments to the plan. Undo removes the whole fill. Switch to Auto-tighten to compare adjustments across this boundary automatically."}
             </p>
           </div>
         )}

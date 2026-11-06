@@ -1,5 +1,6 @@
 import {
   createSignal,
+  batch,
   createMemo,
   createEffect,
   onMount,
@@ -104,6 +105,11 @@ import {
 } from "../domain/persistence";
 import { terrainLookup, PALACE } from "../data/terrain";
 import { createSafetyWorker } from "../domain/safety-worker";
+import {
+  optimizeBoundaryInWorker,
+  type BoundaryFillInput,
+} from "../domain/boundary-fill-worker";
+import type { BoundaryOptimizationResult } from "../domain/boundary-optimizer";
 
 type Formation = "single" | "daisy" | "grass" | "mud";
 type Strategy = string;
@@ -196,6 +202,18 @@ export default function Planner() {
   const [fillPreview, setFillPreview] = createSignal<SmartFillResult | null>(
     null,
   );
+  const autoTighten = () => plan().settings.fillMode === "auto";
+  const [optimizingFill, setOptimizingFill] = createSignal(false);
+  const [applyingFill, setApplyingFill] = createSignal(false);
+  const [optimizationState, setOptimizationState] = createSignal<{
+    snapshot: Plan;
+    boundaryId: string;
+    options: BoundaryFillInput;
+    preview: SmartFillResult;
+    result: BoundaryOptimizationResult;
+  } | null>(null);
+  let fillGeneration = 0;
+  let fillJob: ReturnType<typeof optimizeBoundaryInWorker> | undefined;
   const [fillX, setFillX] = createSignal("477");
   const [fillY, setFillY] = createSignal("477");
   const [fillAudit, setFillAudit] = createSignal<{
@@ -242,21 +260,25 @@ export default function Planner() {
     input!: HTMLInputElement,
     noticeTimer: ReturnType<typeof setTimeout> | undefined;
   const terrain = createMemo(() => terrainLookup(plan()));
-  const planIssues = createMemo(() =>
-    plan().placements.flatMap((p) => {
-      const result = validatePlacement(p, plan().placements, {
+  function placementIssuesFor(
+    layout: Plan,
+    allowUnknown = layout.settings.allowUnknown,
+  ) {
+    return layout.placements.flatMap((p) => {
+      const result = validatePlacement(p, layout.placements, {
         terrainAt: terrain().rules,
         ignoreId: p.id,
         spacing: "tile",
-        allowUnknown: plan().settings.allowUnknown,
-        allianceAnchor: plan().allianceAnchor ?? undefined,
-        allianceAnchorKind: plan().allianceAnchorKind,
+        allowUnknown,
+        allianceAnchor: layout.allianceAnchor ?? undefined,
+        allianceAnchorKind: layout.allianceAnchorKind,
       });
       return result.valid
         ? []
         : [{ id: p.id, name: p.name, issues: result.issues }];
-    }),
-  );
+    });
+  }
+  const planIssues = createMemo(() => placementIssuesFor(plan()));
   const selectedPlacement = createMemo(() =>
     plan().placements.find((p) => p.id === selected()),
   );
@@ -273,6 +295,38 @@ export default function Planner() {
     return search?.snapshot === plan() && search.selectedId === selected()
       ? search.result
       : undefined;
+  });
+  const currentOptimization = createMemo(() => {
+    const state = optimizationState();
+    return state?.snapshot === plan() &&
+      state.boundaryId === selected() &&
+      state.preview === fillPreview()
+      ? state
+      : null;
+  });
+  const mapPlan = createMemo<Plan>(() => {
+    const optimization = currentOptimization();
+    return optimization
+      ? { ...plan(), placements: optimization.result.placements }
+      : plan();
+  });
+  const previewPlanIssues = createMemo(() =>
+    currentOptimization() ? placementIssuesFor(mapPlan()) : planIssues(),
+  );
+  const optimizationSummary = createMemo(() => {
+    const result = currentOptimization()?.result;
+    return result
+      ? {
+          status: result.status,
+          before: result.before,
+          after: result.after,
+          moved: result.movedIds.length,
+          added: result.addedIds.length,
+          truncated: result.truncated,
+          reason: result.reason,
+          seedCount: result.seedCount,
+        }
+      : null;
   });
   const currentFillAudit = createMemo(() => {
     const report = fillAudit();
@@ -301,9 +355,13 @@ export default function Planner() {
           (e) => !ids.has(e.placementId) && e.analysis.risk === "two-fit",
         ).length ?? 0,
       uncertain:
+        currentOptimization()?.result.after.uncertain ??
         (result?.summary.incompleteCount ?? 0) +
-        (result?.summary.provisionalCount ?? 0),
-      invalid: Math.max(result?.summary.invalidCount ?? 0, planIssues().length),
+          (result?.summary.provisionalCount ?? 0),
+      invalid: Math.max(
+        result?.summary.invalidCount ?? 0,
+        previewPlanIssues().length,
+      ),
     };
   });
   const fillRisk = createMemo(() =>
@@ -316,9 +374,12 @@ export default function Planner() {
     // Fill warnings remain visible while reviewing a proposal, even when the saved-plan layer is off.
     if (!fill && !plan().settings.showSafety) return [];
     const placements = new Map(
-      [...plan().placements, ...(fill?.placements ?? [])].map((p) => [p.id, p]),
+      [
+        ...mapPlan().placements,
+        ...(currentOptimization() ? [] : (fill?.placements ?? [])),
+      ].map((p) => [p.id, p]),
     );
-    const invalid = new Set(planIssues().map((p) => p.id));
+    const invalid = new Set(previewPlanIssues().map((p) => p.id));
     const audit = fill ? currentFillAudit()?.result : safetyAudit();
     return (audit?.entries ?? []).flatMap<{
       tile: Placement;
@@ -448,7 +509,7 @@ export default function Planner() {
     setFuture([]);
     setPlan(parsed.data);
     setCanSave(true);
-    setFillPreview(null);
+    discardFill();
     return true;
   }
   function undo() {
@@ -458,7 +519,7 @@ export default function Planner() {
     setPlan(stack[stack.length - 1]);
     setHistory(stack.slice(0, -1));
     syncSelectedCoordinates();
-    setFillPreview(null);
+    discardFill();
     setCanSave(true);
   }
   function redo() {
@@ -468,7 +529,7 @@ export default function Planner() {
     setPlan(stack[stack.length - 1]);
     setFuture(stack.slice(0, -1));
     syncSelectedCoordinates();
-    setFillPreview(null);
+    discardFill();
     setCanSave(true);
   }
   function setting<K extends keyof Plan["settings"]>(
@@ -489,7 +550,7 @@ export default function Planner() {
     setTool(value);
     cancelEdgePreview();
     setPinnedPreview(null);
-    setFillPreview(null);
+    discardFill();
     setDraft([]);
     if (value !== "measure") setMeasure([]);
     if (value === "terrain") setTab("layers");
@@ -773,6 +834,19 @@ export default function Planner() {
   }
   function clickMap(tile: Tile, p?: Placement) {
     if (!inWorld(tile)) return;
+    if (currentOptimization()) {
+      if (p) {
+        setFillRiskId(p.id);
+        const entry = currentFillAudit()?.result?.entries.find(
+          (e) => e.placementId === p.id,
+        );
+        if (entry?.analysis.risk === "two-fit")
+          notify(
+            `${p.name}: Enemy A and B could both fit after this HQ is lost.`,
+          );
+      }
+      return;
+    }
     if (tool() === "fill-anchor") {
       setFillAnchor(p ?? tile);
       setTool("select");
@@ -870,6 +944,245 @@ export default function Planner() {
     setSelected(id);
     setXInput(String(tile.x));
     setYInput(String(tile.y));
+  }
+  function discardFill() {
+    fillGeneration++;
+    fillJob?.cancel();
+    fillJob = undefined;
+    batch(() => {
+      setOptimizingFill(false);
+      setApplyingFill(false);
+      setOptimizationState(null);
+      setFillPreview(null);
+      setFillRiskId(null);
+    });
+  }
+  function cancelAutomaticFill() {
+    discardFill();
+    notify("Automatic fill canceled. Your saved placements are unchanged.");
+  }
+  function fillInput(): BoundaryFillInput {
+    const boundary = selectedBoundary(),
+      anchor = readFillAnchor();
+    if (!boundary?.closed || !anchor)
+      throw new Error("Choose a closed boundary and a valid anchor.");
+    return {
+      boundary: validatedClosedBoundary(boundary.points),
+      anchor,
+      strategy: {
+        ...activeStrategy(),
+        rotation:
+          (rotation() + (mirrored() ? -1 : 1) * activeStrategy().rotation + 6) %
+          6,
+      },
+      mirrored: mirrored(),
+      groupId: activeGroup().id,
+      namePrefix: activeGroup().name,
+      allowUnknown: plan().settings.allowUnknown,
+      maxCandidates: 20_000,
+      maxPlacements: 250,
+    };
+  }
+  async function optimizeFill() {
+    discardFill();
+    const generation = fillGeneration,
+      snapshot = plan(),
+      boundaryId = selected();
+    try {
+      const options = fillInput();
+      if (!boundaryId) return;
+      const fixedIssue = planIssues().find((issue) => {
+        const p = snapshot.placements.find((p) => p.id === issue.id)!;
+        return p.kind !== "hq" || !footprintInBoundary(p, options.boundary);
+      });
+      if (fixedIssue)
+        throw new Error(
+          `${fixedIssue.name}: ${fixedIssue.issues[0]} This fixed placement must be corrected before automatic fill.`,
+        );
+      setOptimizingFill(true);
+      setTool("select");
+      fillJob = optimizeBoundaryInWorker(snapshot, options);
+      const result = await fillJob.promise;
+      if (
+        generation !== fillGeneration ||
+        plan() !== snapshot ||
+        selected() !== boundaryId
+      )
+        return;
+      const scoped = new Set(result.scopedIds);
+      const preview: SmartFillResult = {
+        placements: result.placements.filter((p) => scoped.has(p.id)),
+        accepted: result.scopedIds.length,
+        considered: result.evaluated,
+        candidateCount: result.evaluated,
+        rejected: { boundary: 0, terrain: 0, collision: 0, spacing: 0 },
+        truncated: result.truncated,
+        provisional: 0,
+      };
+      batch(() => {
+        setOptimizationState({
+          snapshot,
+          boundaryId,
+          options,
+          preview,
+          result,
+        });
+        setFillPreview(preview);
+        setOptimizingFill(false);
+      });
+      if (selectedBoundary()) focusBoundary(selectedBoundary()!);
+      setMobilePanel(false);
+      notify(
+        result.status === "resolved"
+          ? "Automatic layout ready: no two-HQ losses or open HQ centers found inside this boundary. Review before applying."
+          : result.status === "blocked"
+            ? result.reason ||
+              "Automatic fill needs valid, verified terrain before it can proceed."
+            : `Automatic layout ready: ${result.before.twoFit} → ${result.after.twoFit} loss warnings; ${result.before.openCenters} → ${result.after.openCenters} open HQ centers.`,
+      );
+    } catch (error) {
+      if (generation === fillGeneration)
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Automatic fill could not finish.",
+        );
+    } finally {
+      if (generation === fillGeneration) {
+        fillJob = undefined;
+        setOptimizingFill(false);
+      }
+    }
+  }
+  async function applyOptimizedFill() {
+    const state = currentOptimization();
+    if (
+      !state ||
+      state.result.status === "blocked" ||
+      fillSafety()?.status !== "ready" ||
+      applyingFill()
+    )
+      return;
+    const generation = fillGeneration;
+    setApplyingFill(true);
+    try {
+      const before = new Map(state.snapshot.placements.map((p) => [p.id, p]));
+      const movedIds = new Set(state.result.movedIds),
+        addedIds = new Set(state.result.addedIds);
+      const proposed: Plan = {
+        ...state.snapshot,
+        placements: state.result.placements.map((p) => {
+          const placement = { ...p };
+          if (movedIds.has(p.id)) delete placement.clusterId;
+          return placement;
+        }),
+      };
+      const parsed = PlanSchema.safeParse(proposed);
+      if (!parsed.success)
+        throw new Error(
+          "The optimized layout could not be validated. Rebuild the preview.",
+        );
+      const invalid = placementIssuesFor(parsed.data, false);
+      if (invalid.length)
+        throw new Error(`${invalid[0].name}: ${invalid[0].issues[0]}`);
+      const after = new Map(parsed.data.placements.map((p) => [p.id, p]));
+      for (const original of before.values()) {
+        const next = after.get(original.id);
+        if (
+          !next ||
+          next.name !== original.name ||
+          next.groupId !== original.groupId ||
+          next.kind !== original.kind ||
+          next.showGraphic !== original.showGraphic
+        )
+          throw new Error(
+            "The optimizer must preserve every existing assignment. Rebuild the preview.",
+          );
+        const movable =
+          original.kind === "hq" &&
+          footprintInBoundary(original, state.options.boundary);
+        if (
+          (!movable || !movedIds.has(original.id)) &&
+          (next.x !== original.x || next.y !== original.y)
+        )
+          throw new Error("A fixed placement changed. Rebuild the preview.");
+      }
+      for (const placement of parsed.data.placements) {
+        if (!before.has(placement.id) && !addedIds.has(placement.id))
+          throw new Error("Unexpected placement in the preview. Rebuild it.");
+        if (!movedIds.has(placement.id) && !addedIds.has(placement.id))
+          continue;
+        if (
+          placement.kind !== "hq" ||
+          !footprintInBoundary(placement, state.options.boundary)
+        )
+          throw new Error(
+            "Every adjusted HQ must fit completely inside the boundary.",
+          );
+        const cells = footprint(placement).map(terrain().rules);
+        if (cells.some((t) => t === "unknown"))
+          throw new Error(
+            "Verify terrain before applying this automatic layout.",
+          );
+        const previous = before.get(placement.id);
+        const oldCells = previous
+          ? footprint(previous).map(terrain().rules)
+          : [];
+        const oldTerrainKnownLegal = oldCells.every(
+          (t) => t === "grass" || t === "mud",
+        );
+        const requiresMud = previous
+          ? oldTerrainKnownLegal && oldCells.includes("mud")
+          : state.options.strategy.terrain === "mud";
+        const requiresGrass = previous
+          ? oldTerrainKnownLegal && oldCells.every((t) => t === "grass")
+          : state.options.strategy.terrain === "grass";
+        if (
+          (requiresMud && !cells.includes("mud")) ||
+          (requiresGrass && cells.some((t) => t !== "grass"))
+        )
+          throw new Error(
+            "An adjusted HQ changed terrain category. Rebuild the preview.",
+          );
+      }
+      const audit = await safetyWorker!.audit(parsed.data);
+      if (
+        generation !== fillGeneration ||
+        currentOptimization() !== state ||
+        state.snapshot !== plan()
+      )
+        return;
+      const scoped = new Set(state.result.scopedIds);
+      const entries = audit.entries.filter((e) => scoped.has(e.placementId));
+      if (
+        audit.summary.invalidCount ||
+        entries.some((e) => e.confidence !== "known") ||
+        entries.filter((e) => e.analysis.risk === "two-fit").length !==
+          state.result.after.twoFit
+      )
+        throw new Error(
+          "The final safety check differs from this preview. Rebuild it before applying.",
+        );
+      if (
+        !commit((p) => {
+          p.placements = parsed.data.placements;
+          if (!p.plotAnchor) p.plotAnchor = state.options.anchor;
+        })
+      )
+        return;
+      notify(
+        `Applied automatic layout: ${movedIds.size} HQs repositioned, ${addedIds.size} added. Undo restores the whole previous layout.`,
+      );
+    } catch (error) {
+      if (generation === fillGeneration)
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Could not apply the automatic layout.",
+        );
+    } finally {
+      if (generation === fillGeneration) setApplyingFill(false);
+    }
   }
   function readFillAnchor(): Tile | null {
     if (!/^\d+$/.test(fillX()) || !/^\d+$/.test(fillY())) return null;
@@ -993,6 +1306,10 @@ export default function Planner() {
     return result;
   }
   function previewFill() {
+    if (autoTighten()) {
+      void optimizeFill();
+      return;
+    }
     try {
       const result = computeFill();
       setFillPreview(result);
@@ -1010,6 +1327,10 @@ export default function Planner() {
     }
   }
   function applyFill() {
+    if (currentOptimization()) {
+      void applyOptimizedFill();
+      return;
+    }
     try {
       const prior = fillPreview();
       if (!prior?.accepted || fillSafety()?.status !== "ready") return;
@@ -1037,7 +1358,7 @@ export default function Planner() {
         `Added ${fresh.accepted} HQs. Select any coral warning to compare tighter edge placements.`,
       );
     } catch (e) {
-      setFillPreview(null);
+      discardFill();
       notify(e instanceof Error ? e.message : "Could not apply the fill.");
     }
   }
@@ -1158,7 +1479,7 @@ export default function Planner() {
       return;
     edgeApplyGeneration++;
     setTighteningPreview(suggestion);
-    setFillPreview(null);
+    discardFill();
     setPinnedPreview(null);
     setTool("select");
     map?.focus(suggestion.to, 1.2);
@@ -1339,6 +1660,8 @@ export default function Planner() {
       edgeSearchGeneration++;
       edgeApplyGeneration++;
       safetyWorker?.dispose();
+      fillGeneration++;
+      fillJob?.cancel();
     });
     const r = loadLocalPlan();
     if (r.ok && r.value) {
@@ -1459,7 +1782,7 @@ export default function Planner() {
     group();
     rotation();
     mirrored();
-    setFillPreview(null);
+    discardFill();
   });
   let lastFillBoundary: string | null = null;
   createEffect(() => {
@@ -1482,6 +1805,11 @@ export default function Planner() {
     setFillRiskId(null);
     setFillAudit(null);
     if (!preview || !ready()) return;
+    const optimized = currentOptimization();
+    if (optimized) {
+      setFillAudit({ snapshot, preview, result: optimized.result.audit });
+      return;
+    }
     let canceled = false;
     const timer = setTimeout(async () => {
       try {
@@ -1576,11 +1904,12 @@ export default function Planner() {
             fallback={<div class="loading-map">Preparing the world…</div>}
           >
             <WorldMap
-              plan={plan()}
+              plan={mapPlan()}
+              readOnlyPlacements={Boolean(currentOptimization())}
               tool={tool()}
               selectedId={selected()}
               terrainAt={terrain().display}
-              preview={fillPreview()?.placements ?? preview()}
+              preview={currentOptimization() ? [] : (fillPreview()?.placements ?? preview())}
               previewValid={fillPreview() ? true : !previewIssues().length}
               plotGuide={tool() === "hq" ? plotLattice() : undefined}
               plotTarget={plotTarget()?.tile}
@@ -1600,9 +1929,10 @@ export default function Planner() {
               }
               safetyWarnings={safetyWarnings()}
               existingOpenTiles={
-                !fillPreview() && showOpenCenters()
+                currentOptimization()?.result.openCenterSamples ??
+                (!fillPreview() && showOpenCenters()
                   ? (risk()?.existingOpen ?? [])
-                  : []
+                  : [])
               }
               tighteningPreview={tighteningPreview()}
               onHover={(tile) => {
@@ -1614,7 +1944,7 @@ export default function Planner() {
               onSelect={(id) => {
                 setSelected(id);
                 setTab("inspect");
-                setFillPreview(null);
+                discardFill();
               }}
               onMoveBoundary={(id, points) =>
                 commit((p) => {
@@ -1716,7 +2046,20 @@ export default function Planner() {
               </button>
             </div>
           </Show>
-          <Show when={fillPreview()}>
+          <Show when={optimizingFill() || applyingFill()}>
+            <div class="floating-instruction" role="status">
+              <Shield size={16} />
+              <span>
+                {applyingFill()
+                  ? "Rechecking the complete layout…"
+                  : "Optimizing boundary placements and gaps…"}
+              </span>
+              <button class="text-button" onClick={cancelAutomaticFill}>
+                Cancel
+              </button>
+            </div>
+          </Show>
+          <Show when={!applyingFill() && fillPreview()}>
             {(fill) => (
               <div
                 class="floating-instruction fill-preview-banner"
@@ -1725,17 +2068,23 @@ export default function Planner() {
                 <Layers size={16} />
                 <span>
                   <b>
-                    {fill().accepted} {fill().accepted === 1 ? "HQ" : "HQs"} ·
-                    preview only
+                    {fill().accepted} {fill().accepted === 1 ? "HQ" : "HQs"} ·{" "}
+                    {currentOptimization()
+                      ? "automatic preview"
+                      : "preview only"}
                   </b>
                   <span>
-                    {fillSafety()?.status === "checking"
-                      ? "Checking HQ losses…"
-                      : fillSafety()?.status === "error"
-                        ? "Loss check unavailable"
-                        : fillSafety()?.invalid
-                          ? "Existing positions need review"
-                          : `${fillSafety()?.proposedTwoFit ?? 0} proposed HQ loss warnings${fillSafety()?.uncertain ? " · unverified terrain" : ""}`}
+                    {currentOptimization()
+                      ? currentOptimization()!.result.status === "blocked"
+                        ? "Optimization needs review"
+                        : `${currentOptimization()!.result.after.twoFit} loss warnings · ${currentOptimization()!.result.after.openCenters} open centers${currentOptimization()!.result.truncated ? " · search limited" : ""}`
+                      : fillSafety()?.status === "checking"
+                        ? "Checking HQ losses…"
+                        : fillSafety()?.status === "error"
+                          ? "Loss check unavailable"
+                          : fillSafety()?.invalid
+                            ? "Existing positions need review"
+                            : `${fillSafety()?.proposedTwoFit ?? 0} proposed HQ loss warnings${fillSafety()?.uncertain ? " · unverified terrain" : ""}`}
                   </span>
                 </span>
                 <button
@@ -1912,7 +2261,7 @@ export default function Planner() {
           class={`side-panel ${mobilePanel() ? "mobile-open" : ""}`}
           aria-label="Plan controls"
         >
-          <Show when={planIssues().length}>
+          <Show when={planIssues().length && !currentOptimization()}>
             <button
               class="plan-review-banner"
               onClick={() => {
@@ -2457,6 +2806,13 @@ export default function Planner() {
                         </p>
                         <Show when={b().closed}>
                           <BoundaryFillPanel
+                            autoTighten={autoTighten()}
+                            optimizing={optimizingFill() || applyingFill()}
+                            optimization={optimizationSummary()}
+                            onAutoTighten={(value) =>
+                              setting("fillMode", value ? "auto" : "exact")
+                            }
+                            onCancelOptimization={cancelAutomaticFill}
                             strategies={registry().strategies}
                             strategyId={activeStrategy().id}
                             groupOptions={plan().groups}
@@ -2486,13 +2842,13 @@ export default function Planner() {
                                 setTool("select");
                                 return;
                               }
-                              setFillPreview(null);
+                              discardFill();
                               setTool("fill-anchor");
                               setMobilePanel(false);
                             }}
                             onPreview={previewFill}
                             onApply={applyFill}
-                            onDiscard={() => setFillPreview(null)}
+                            onDiscard={discardFill}
                             onReviewWarnings={reviewFillWarnings}
                           />
                         </Show>

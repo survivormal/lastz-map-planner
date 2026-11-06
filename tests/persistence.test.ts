@@ -35,7 +35,9 @@ function memoryStorage(
 test("JSON round trip preserves names, groups, assignments, and display settings", () => {
   const plan = createPlan("802 · 泥地 plan");
   assert.equal(plan.settings.terrainStyle, "game");
+  assert.equal(plan.settings.fillMode, "auto");
   plan.settings.terrainStyle = "tactical";
+  plan.settings.fillMode = "exact";
   plan.placements.push({
     id: "hq-1",
     kind: "hq",
@@ -53,12 +55,19 @@ test("JSON round trip preserves names, groups, assignments, and display settings
   const legacy = parsePlan(
     JSON.stringify({
       ...plan,
-      settings: { ...plan.settings, terrainStyle: undefined },
+      settings: {
+        ...plan.settings,
+        terrainStyle: undefined,
+        fillMode: undefined,
+      },
     }),
   );
   assert.deepEqual(legacy, {
     ok: true,
-    value: { ...plan, settings: { ...plan.settings, terrainStyle: "game" } },
+    value: {
+      ...plan,
+      settings: { ...plan.settings, terrainStyle: "game", fillMode: "auto" },
+    },
   });
   assert.equal(
     coordinateToken(plan.placements[0], plan.server),

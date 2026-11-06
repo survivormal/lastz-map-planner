@@ -14,6 +14,99 @@
 .boundary-fill-rule {
   color: #c3d1bf;
 }
+.boundary-fill-controls {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.boundary-fill-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 15px 0 8px;
+}
+.boundary-fill-mode > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px 5px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.boundary-fill-mode svg {
+  flex-shrink: 0;
+}
+.boundary-fill-progress {
+  margin-top: 14px;
+  padding: 13px;
+  border: 1px solid #67825c;
+  border-radius: 10px;
+  background: #1c2a21;
+}
+.boundary-fill-progress strong {
+  color: var(--accent);
+  font-size: 12px;
+}
+.boundary-fill-progress p {
+  color: #c0cdbc;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.boundary-fill-optimization h3 {
+  margin: 14px 0 8px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.boundary-fill-optimization table {
+  width: 100%;
+  margin-top: 12px;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.boundary-fill-optimization th,
+.boundary-fill-optimization td {
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+  line-height: 1.5;
+  text-align: right;
+}
+.boundary-fill-optimization th:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+.boundary-fill-optimization th:last-child,
+.boundary-fill-optimization td:last-child {
+  padding-right: 0;
+}
+.boundary-fill-optimization thead th {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+.boundary-fill-optimization tbody th {
+  max-width: 118px;
+  color: #d1ddcc;
+  font-weight: 400;
+}
+.boundary-fill-optimization td:last-child {
+  color: var(--accent);
+  font-weight: 650;
+}
+.boundary-fill-optimization td.has-risk:last-child {
+  color: #ffd0bb;
+}
+.boundary-fill-optimization td.has-openings:last-child {
+  color: #ead6a5;
+}
 .boundary-fill-orientation,
 .boundary-fill-anchor {
   position: relative;

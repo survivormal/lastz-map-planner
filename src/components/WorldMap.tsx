@@ -48,6 +48,7 @@ type Props = {
   selectedId: string | null;
   preview: Tile[];
   previewValid: boolean;
+  readOnlyPlacements?: boolean;
   boundaryDraft: Tile[];
   measure: Tile[];
   riskTiles: Tile[];
@@ -756,6 +757,12 @@ export default function WorldMap(props: Props) {
     const selectedClusterId = props.plan.placements.find(
       (p) => p.id === props.selectedId,
     )?.clusterId;
+    const placementLabels: {
+      name: string;
+      x: number;
+      y: number;
+      color: string;
+    }[] = [];
     for (const p of props.plan.placements) {
       const tile = pointer?.placement?.id === p.id && dragTile ? dragTile : p;
       const pixel = worldToPixel(tile);
@@ -806,7 +813,12 @@ export default function WorldMap(props: Props) {
         ctx.stroke();
       }
       if (props.plan.settings.showLabels && c.zoom > 0.52)
-        label(ctx, p.name || "Unassigned", q.x, q.y + 43, color);
+        placementLabels.push({
+          name: p.name || "Unassigned",
+          x: q.x,
+          y: q.y + 43,
+          color,
+        });
     }
     if (props.preview.length)
       for (const tile of props.preview)
@@ -817,6 +829,15 @@ export default function WorldMap(props: Props) {
           0.3,
           true,
         );
+    // Touching HQ footprints must not paint over neighboring assignments.
+    for (const placementLabel of placementLabels)
+      label(
+        ctx,
+        placementLabel.name,
+        placementLabel.x,
+        placementLabel.y,
+        placementLabel.color,
+      );
     drawSafetyOverlays(ctx);
     drawPlotTarget(ctx);
     if (props.fillAnchor) {
@@ -1078,6 +1099,7 @@ export default function WorldMap(props: Props) {
         boundaryHit(p, true) ?? (!placement ? boundaryHit(p) : undefined);
     const pan =
       props.tool === "pan" ||
+      Boolean(props.readOnlyPlacements) ||
       space ||
       e.button === 1 ||
       (props.tool === "select" && !placement && !boundary);
@@ -1277,6 +1299,7 @@ export default function WorldMap(props: Props) {
     props.selectedId;
     props.preview;
     props.previewValid;
+    props.readOnlyPlacements;
     props.boundaryDraft;
     props.measure;
     props.riskTiles;
@@ -1287,7 +1310,11 @@ export default function WorldMap(props: Props) {
     props.plotTarget;
     props.fillAnchor;
     props.terrainAt;
-    if (pointer && pointer.tool !== props.tool) cancelPointer();
+    if (
+      pointer &&
+      (pointer.tool !== props.tool || (props.readOnlyPlacements && !pointer.pan))
+    )
+      cancelPointer();
     schedule();
   });
   return (
