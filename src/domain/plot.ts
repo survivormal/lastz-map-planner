@@ -223,3 +223,114 @@ export function visiblePlotSites(
   }
   return { sites, truncated: false };
 }
+
+/**
+ * Closest lattice sites in clipped world bounds, independent of basis skew. Each world
+ * row contributes two outward progressions, merged by distance without visiting all
+ * sites. The queue holds at most 2,000 entries; emitted work is capped at 50,000 sites.
+ */
+export function nearestPlotSites(
+  lattice: PlotLattice,
+  bounds: PlotBounds,
+  target: Tile,
+  limit: number,
+): { sites: PlotSite[]; candidateCount: number; truncated: boolean } {
+  if (!Object.values(bounds).every(Number.isFinite))
+    throw new RangeError("Plot bounds must be finite.");
+  if (!Number.isSafeInteger(limit) || limit < 0 || limit > 50_000)
+    throw new RangeError(
+      "Plot site limit must be an integer from 0 to 50,000.",
+    );
+  integer(target.x, "Target X");
+  integer(target.y, "Target Y");
+  if (
+    target.x < 0 ||
+    target.x >= WORLD_SIZE ||
+    target.y < 0 ||
+    target.y >= WORLD_SIZE
+  )
+    throw new RangeError("The target must be inside the world.");
+  const prepared = prepare(lattice),
+    stride = Number(prepared.stride);
+  const minX = Math.max(0, Math.ceil(bounds.minX)),
+    maxX = Math.min(WORLD_SIZE - 1, Math.floor(bounds.maxX)),
+    minY = Math.max(0, Math.ceil(bounds.minY)),
+    maxY = Math.min(WORLD_SIZE - 1, Math.floor(bounds.maxY));
+  type Candidate = {
+    x: number;
+    y: number;
+    step: number;
+    first: number;
+    last: number;
+    cost: number;
+  };
+  const heap: Candidate[] = [];
+  const compare = (a: Candidate, b: Candidate) =>
+    a.cost - b.cost || a.y - b.y || a.x - b.x;
+  const push = (candidate: Candidate) => {
+    heap.push(candidate);
+    for (let child = heap.length - 1; child > 0;) {
+      const parent = (child - 1) >> 1;
+      if (compare(heap[parent], heap[child]) <= 0) break;
+      [heap[parent], heap[child]] = [heap[child], heap[parent]];
+      child = parent;
+    }
+  };
+  const pop = (): Candidate => {
+    const first = heap[0],
+      last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last;
+      for (let parent = 0; ;) {
+        let child = parent * 2 + 1;
+        if (child >= heap.length) break;
+        if (
+          child + 1 < heap.length &&
+          compare(heap[child + 1], heap[child]) < 0
+        )
+          child++;
+        if (compare(heap[parent], heap[child]) <= 0) break;
+        [heap[parent], heap[child]] = [heap[child], heap[parent]];
+        parent = child;
+      }
+    }
+    return first;
+  };
+  const cost = (x: number, y: number) => {
+    const dx2 = 2 * (x - target.x) + (y & 1) - (target.y & 1),
+      dy = y - target.y;
+    return dx2 * dx2 + 3 * dy * dy;
+  };
+  let candidateCount = 0;
+  if (minX <= maxX && minY <= maxY)
+    for (let y = minY; y <= maxY; y++) {
+      const row = rowProgression(y, minX, maxX, prepared);
+      if (!row) continue;
+      const first = Number(row.first),
+        count = Number(row.count),
+        last = first + (count - 1) * stride;
+      candidateCount += count;
+      const idealX = target.x + ((target.y & 1) - (y & 1)) / 2;
+      const left = Math.max(
+        -1,
+        Math.min(count - 1, Math.floor((idealX - first) / stride)),
+      );
+      for (const [index, step] of [
+        [left, -stride],
+        [left + 1, stride],
+      ]) {
+        if (index < 0 || index >= count) continue;
+        const x = first + index * stride;
+        push({ x, y, first, last, step, cost: cost(x, y) });
+      }
+    }
+  const sites: PlotSite[] = [];
+  while (heap.length && sites.length < limit) {
+    const candidate = pop();
+    sites.push(exactSite({ x: candidate.x, y: candidate.y }, prepared));
+    const x = candidate.x + candidate.step;
+    if (x >= candidate.first && x <= candidate.last)
+      push({ ...candidate, x, cost: cost(x, candidate.y) });
+  }
+  return { sites, candidateCount, truncated: sites.length < candidateCount };
+}

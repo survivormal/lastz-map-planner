@@ -4,8 +4,8 @@ import {
   footprint,
   footprintInBoundary,
   inWorld,
-  offset,
-  toAxial,
+  pixelToWorld,
+  pointInPolygon,
   worldToPixel,
   type Axial,
   type Tile,
@@ -13,6 +13,7 @@ import {
 import { validatePlacement, type TerrainLookup } from "./placement";
 import type { Placement, Spacing } from "./schema";
 import { orientVector } from "./orientation";
+import { nearestPlotSites } from "./plot";
 import {
   CustomStrategySchema,
   StrategySchema,
@@ -237,6 +238,78 @@ function validateBoundary(boundary: readonly Tile[]): void {
   }
 }
 
+/** A phase origin near the polygon's center; terrain and footprint legality are checked by fill. */
+export function boundaryFillAnchor(boundary: readonly Tile[]): Tile {
+  validateBoundary(boundary);
+  const polygon = boundary.map((tile) => worldToPixel(tile));
+  let area = 0,
+    sumX = 0,
+    sumY = 0;
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i],
+      b = polygon[(i + 1) % polygon.length];
+    const cross = a.x * b.y - b.x * a.y;
+    area += cross;
+    sumX += (a.x + b.x) * cross;
+    sumY += (a.y + b.y) * cross;
+  }
+  const center = { x: sumX / (3 * area), y: sumY / (3 * area) };
+  const rounded = pixelToWorld(center);
+  if (inWorld(rounded) && pointInPolygon(worldToPixel(rounded), polygon))
+    return rounded;
+  // A concave polygon's centroid may fall outside it. Scan at most 1,000 world rows
+  // and select the nearest tile in an interior interval instead of guessing a vertex.
+  let best = { ...boundary[0] },
+    bestCost = Infinity;
+  const consider = (tile: Tile) => {
+    const p = worldToPixel(tile),
+      cost = (p.x - center.x) ** 2 + (p.y - center.y) ** 2;
+    if (
+      cost < bestCost - 1e-7 ||
+      (Math.abs(cost - bestCost) <= 1e-7 &&
+        (tile.y < best.y || (tile.y === best.y && tile.x < best.x)))
+    ) {
+      best = tile;
+      bestCost = cost;
+    }
+  };
+  boundary.forEach(consider);
+  const width = worldToPixel({ x: 1, y: 0 }).x - worldToPixel({ x: 0, y: 0 }).x;
+  const minY = Math.min(...boundary.map((tile) => tile.y)),
+    maxY = Math.max(...boundary.map((tile) => tile.y));
+  for (let y = minY; y <= maxY; y++) {
+    const origin = worldToPixel({ x: 0, y });
+    const intersections: number[] = [],
+      intervals: [number, number][] = [];
+    for (let i = 0; i < polygon.length; i++) {
+      const a = polygon[i],
+        b = polygon[(i + 1) % polygon.length];
+      if (a.y === origin.y && b.y === origin.y)
+        intervals.push([Math.min(a.x, b.x), Math.max(a.x, b.x)]);
+      else if (a.y > origin.y !== b.y > origin.y)
+        intersections.push(
+          a.x + ((origin.y - a.y) * (b.x - a.x)) / (b.y - a.y),
+        );
+    }
+    intersections.sort((a, b) => a - b);
+    for (let i = 0; i + 1 < intersections.length; i += 2)
+      intervals.push([intersections[i], intersections[i + 1]]);
+    for (const [left, right] of intervals) {
+      const first = Math.max(0, Math.ceil((left - origin.x) / width - 1e-9)),
+        last = Math.min(999, Math.floor((right - origin.x) / width + 1e-9));
+      if (first > last) continue;
+      consider({
+        x: Math.max(
+          first,
+          Math.min(last, Math.round((center.x - origin.x) / width)),
+        ),
+        y,
+      });
+    }
+  }
+  return best;
+}
+
 /**
  * Bounded, deterministic lattice fill. This is a valid placement proposal, not a packing
  * optimum or a single-loss safety claim. Terrain and clearance are checked for every HQ.
@@ -266,26 +339,29 @@ export function smartFillBoundary(options: SmartFillOptions): SmartFillResult {
   if (options.placements.length > 5000)
     throw new RangeError("A plan can contain at most 5,000 placements.");
   const capacity = Math.min(maxPlacements, 5000 - options.placements.length);
-  const [a, b] = strategy.basis.map((vector) =>
-    orientVector(vector, strategy.rotation, options.mirrored),
+  const lattice = {
+    anchor: options.anchor,
+    basis: strategy.basis.map((vector) =>
+      orientVector(vector, strategy.rotation, options.mirrored),
+    ) as [Axial, Axial],
+  };
+  const polygon = options.boundary.map((tile) => worldToPixel(tile));
+  const origin = pointInPolygon(worldToPixel(options.anchor), polygon)
+    ? options.anchor
+    : boundaryFillAnchor(options.boundary);
+  const candidates = nearestPlotSites(
+    lattice,
+    {
+      // An odd-row vertex can extend half a tile beyond an even-row vertex's offset X.
+      minX: Math.min(...options.boundary.map((tile) => tile.x)) - 1,
+      maxX: Math.max(...options.boundary.map((tile) => tile.x)) + 1,
+      minY: Math.min(...options.boundary.map((tile) => tile.y)),
+      maxY: Math.max(...options.boundary.map((tile) => tile.y)),
+    },
+    origin,
+    workLimit,
   );
-  const determinant = a.q * b.r - a.r * b.q;
-  const anchor = toAxial(options.anchor);
-  const coefficients = options.boundary.map((tile) => {
-    const p = toAxial(tile),
-      q = p.q - anchor.q,
-      r = p.r - anchor.r;
-    return {
-      i: (q * b.r - r * b.q) / determinant,
-      j: (a.q * r - a.r * q) / determinant,
-    };
-  });
-  const minI = Math.ceil(Math.min(...coefficients.map(({ i }) => i)) - 1e-9);
-  const maxI = Math.floor(Math.max(...coefficients.map(({ i }) => i)) + 1e-9);
-  const minJ = Math.ceil(Math.min(...coefficients.map(({ j }) => j)) - 1e-9);
-  const maxJ = Math.floor(Math.max(...coefficients.map(({ j }) => j)) + 1e-9);
-  const candidateCount =
-    Math.max(0, maxI - minI + 1) * Math.max(0, maxJ - minJ + 1);
+  const candidateCount = candidates.candidateCount;
   const result: SmartFillResult = {
     placements: [],
     accepted: 0,
@@ -297,51 +373,23 @@ export function smartFillBoundary(options: SmartFillOptions): SmartFillResult {
   };
   if (candidateCount === 0) return result;
   if (capacity === 0) return { ...result, truncated: true };
-  // Traverse coefficient neighbors from the anchor (or the nearest bounded coefficient).
-  // The work queue never exceeds four times the explicit candidate cap.
-  const queue = [
-    {
-      i: Math.max(minI, Math.min(maxI, 0)),
-      j: Math.max(minJ, Math.min(maxJ, 0)),
-    },
-  ];
-  const visited = new Set<string>([`${queue[0].i},${queue[0].j}`]);
   const ids = new Set(options.placements.map(({ id }) => id));
+  const names = new Set(
+    options.placements
+      .filter((placement) => placement.groupId === options.groupId)
+      .map((placement) => placement.name),
+  );
+  const prefix = options.namePrefix?.trim() || strategy.name;
+  let nextNumber = 1;
   const allPlacements = [...options.placements];
   const makeId = options.makeId ?? (() => globalThis.crypto.randomUUID());
   for (
     let cursor = 0;
-    cursor < queue.length &&
-    result.considered < workLimit &&
-    result.accepted < capacity;
+    cursor < candidates.sites.length && result.accepted < capacity;
     cursor++
   ) {
-    const { i, j } = queue[cursor];
-    for (const [di, dj] of [
-      [1, 0],
-      [0, 1],
-      [-1, 0],
-      [0, -1],
-    ]) {
-      const nextI = i + di,
-        nextJ = j + dj,
-        key = `${nextI},${nextJ}`;
-      if (
-        nextI < minI ||
-        nextI > maxI ||
-        nextJ < minJ ||
-        nextJ > maxJ ||
-        visited.has(key)
-      )
-        continue;
-      visited.add(key);
-      queue.push({ i: nextI, j: nextJ });
-    }
     result.considered++;
-    const center = offset(options.anchor, {
-      q: i * a.q + j * b.q,
-      r: i * a.r + j * b.r,
-    });
+    const center = candidates.sites[cursor].tile;
     if (!inWorld(center) || !footprintInBoundary(center, options.boundary)) {
       result.rejected.boundary++;
       continue;
@@ -385,7 +433,11 @@ export function smartFillBoundary(options: SmartFillOptions): SmartFillResult {
         "Placement ID generator returned an invalid or duplicate ID.",
       );
     ids.add(id);
-    const name = `${options.namePrefix?.trim() || strategy.name} ${String(result.accepted + 1).padStart(2, "0")}`;
+    let name: string;
+    do {
+      name = `${prefix} ${String(nextNumber++).padStart(2, "0")}`;
+    } while (names.has(name));
+    names.add(name);
     if (name.length > 160 || options.groupId.length > 120)
       throw new RangeError("Placement name or group ID is too long.");
     const placement: Placement = {

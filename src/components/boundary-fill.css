@@ -1,0 +1,178 @@
+.boundary-fill {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.boundary-fill .field {
+  margin-top: 14px;
+}
+.boundary-fill input,
+.boundary-fill select,
+.boundary-fill button {
+  min-height: 44px;
+}
+.boundary-fill-rule {
+  color: #c3d1bf;
+}
+.boundary-fill-orientation,
+.boundary-fill-anchor {
+  position: relative;
+  min-width: 0;
+  margin: 17px 0;
+  padding: 0;
+  border: 0;
+}
+.boundary-fill legend {
+  padding: 0;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.boundary-fill-angle {
+  display: block;
+  margin: 7px 0;
+  color: var(--accent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.boundary-fill-turns {
+  display: grid;
+  grid-template-columns: 48px 48px minmax(0, 1fr) 44px;
+  gap: 5px;
+}
+.boundary-fill-turns > button {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 5px 3px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 10px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.boundary-fill [aria-pressed="true"] {
+  border-color: #a9ce8d;
+  background: #c4eca620;
+  color: var(--accent);
+}
+.boundary-fill-turns > button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.boundary-fill-anchor .coordinate-fields {
+  margin-top: 9px;
+}
+.boundary-fill-anchor-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+.boundary-fill-anchor-actions > button {
+  padding: 6px;
+  white-space: normal;
+  font-size: 10px;
+  line-height: 1.4;
+}
+.boundary-fill-pick {
+  margin-top: 7px;
+}
+.boundary-fill-result {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #68834b80;
+  border-radius: 10px;
+  background: #c4eca609;
+}
+.boundary-fill-result-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px 7px;
+  color: var(--text);
+  font-size: 12px;
+}
+.boundary-fill-result-heading strong {
+  color: var(--accent);
+  font-size: 24px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.boundary-fill-result-heading small {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.8px;
+}
+.boundary-fill-notice {
+  padding-left: 9px;
+  border-left: 2px solid #c3a878;
+  color: #e0cda9;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.boundary-fill-safety {
+  margin: 12px 0;
+  padding: 11px;
+  border: 1px solid #52634f;
+  border-radius: 7px;
+  background: #17241d;
+  color: #d4e2d0;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.boundary-fill-safety.has-risk {
+  border-color: #a86b54;
+  background: #34251f;
+  color: #ffd0bb;
+}
+.boundary-fill-safety.is-uncertain {
+  border-color: #af9560;
+}
+.boundary-fill-safety-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.boundary-fill-safety-heading > strong {
+  color: inherit;
+  font-size: 12px;
+}
+.boundary-fill-safety p {
+  margin: 9px 0 0;
+}
+.boundary-fill-safety .button {
+  margin-top: 10px;
+  white-space: normal;
+  font-size: 11px;
+}
+.boundary-fill-safety-note {
+  color: #b8bdb2;
+  font-size: 10px;
+}
+.boundary-fill-uncertain {
+  color: #ead6a5;
+}
+.boundary-fill-uncertain svg {
+  display: inline-block;
+  margin-right: 5px;
+  vertical-align: -2px;
+}
+.boundary-fill-result > .button + .button {
+  margin-top: 7px;
+}
+.boundary-fill-result > .field-help:last-child {
+  margin-bottom: 0;
+}
+@media (hover: hover) and (pointer: fine) {
+  .boundary-fill-turns > button:hover:not(:disabled) {
+    background: #354438;
+    color: #e9f3e0;
+  }
+}

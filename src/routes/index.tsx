@@ -4,6 +4,7 @@ import {
   createEffect,
   onMount,
   onCleanup,
+  untrack,
   Show,
   For,
 } from "solid-js";
@@ -48,6 +49,7 @@ import {
 import StrategyEditor from "../components/StrategyEditor";
 import FormationOrientation from "../components/FormationOrientation";
 import EdgeSafetyPanel from "../components/EdgeSafetyPanel";
+import BoundaryFillPanel from "../components/BoundaryFillPanel";
 import WorldMap, {
   type MapTool,
   type MapApi,
@@ -67,6 +69,9 @@ import {
   createStrategyRegistry,
   regularStrategy,
   smartFillBoundary,
+  boundaryFillAnchor,
+  worldToPixel,
+  type Boundary,
   offset,
   orientVector,
   transformCluster,
@@ -189,6 +194,16 @@ export default function Planner() {
   const [fillPreview, setFillPreview] = createSignal<SmartFillResult | null>(
     null,
   );
+  const [fillX, setFillX] = createSignal("477");
+  const [fillY, setFillY] = createSignal("477");
+  const [fillAudit, setFillAudit] = createSignal<{
+    preview: SmartFillResult;
+    snapshot: Plan;
+    result?: PlacementSafetyAudit;
+    failed?: boolean;
+  } | null>(null);
+  const [fillRiskId, setFillRiskId] = createSignal<string | null>(null);
+  const [fillBoundaryChoice, setFillBoundaryChoice] = createSignal("");
   const [safetyReport, setSafetyReport] = createSignal<{
     snapshot: Plan;
     result: PlacementSafetyAudit;
@@ -257,16 +272,63 @@ export default function Planner() {
       ? search.result
       : undefined;
   });
+  const currentFillAudit = createMemo(() => {
+    const report = fillAudit();
+    return report?.snapshot === plan() && report.preview === fillPreview()
+      ? report
+      : null;
+  });
+  const fillSafety = createMemo(() => {
+    const preview = fillPreview();
+    if (!preview) return null;
+    const report = currentFillAudit();
+    const result = report?.result;
+    const ids = new Set(preview.placements.map((p) => p.id));
+    return {
+      status: result
+        ? ("ready" as const)
+        : report?.failed
+          ? ("error" as const)
+          : ("checking" as const),
+      proposedTwoFit:
+        result?.entries.filter(
+          (e) => ids.has(e.placementId) && e.analysis.risk === "two-fit",
+        ).length ?? 0,
+      existingTwoFit:
+        result?.entries.filter(
+          (e) => !ids.has(e.placementId) && e.analysis.risk === "two-fit",
+        ).length ?? 0,
+      uncertain:
+        (result?.summary.incompleteCount ?? 0) +
+        (result?.summary.provisionalCount ?? 0),
+      invalid: Math.max(result?.summary.invalidCount ?? 0, planIssues().length),
+    };
+  });
+  const fillRisk = createMemo(() =>
+    currentFillAudit()?.result?.entries.find(
+      (e) => e.placementId === fillRiskId(),
+    ),
+  );
   const safetyWarnings = createMemo(() => {
-    if (!plan().settings.showSafety) return [];
-    const placements = new Map(plan().placements.map((p) => [p.id, p]));
+    const fill = fillPreview();
+    // Fill warnings remain visible while reviewing a proposal, even when the saved-plan layer is off.
+    if (!fill && !plan().settings.showSafety) return [];
+    const placements = new Map(
+      [...plan().placements, ...(fill?.placements ?? [])].map((p) => [p.id, p]),
+    );
     const invalid = new Set(planIssues().map((p) => p.id));
-    return (safetyAudit()?.entries ?? []).flatMap<{
+    const audit = fill ? currentFillAudit()?.result : safetyAudit();
+    return (audit?.entries ?? []).flatMap<{
       tile: Placement;
       kind: "two-fit" | "unknown";
     }>((entry) => {
       const tile = placements.get(entry.placementId);
-      if (!tile || invalid.has(entry.placementId)) return [];
+      if (
+        !tile ||
+        invalid.has(entry.placementId) ||
+        entry.placementIssues.length
+      )
+        return [];
       return entry.analysis.risk === "two-fit"
         ? [{ tile, kind: "two-fit" as const }]
         : entry.confidence !== "known"
@@ -709,6 +771,13 @@ export default function Planner() {
   }
   function clickMap(tile: Tile, p?: Placement) {
     if (!inWorld(tile)) return;
+    if (tool() === "fill-anchor") {
+      setFillAnchor(p ?? tile);
+      setTool("select");
+      setMobilePanel(true);
+      notify("Fill alignment set. Preview to see the new positions.");
+      return;
+    }
     if (tool() === "select") {
       setSelected(p?.id ?? null);
       if (p) {
@@ -785,9 +854,101 @@ export default function Planner() {
     setXInput(String(tile.x));
     setYInput(String(tile.y));
   }
+  function readFillAnchor(): Tile | null {
+    if (!/^\d+$/.test(fillX()) || !/^\d+$/.test(fillY())) return null;
+    const tile = { x: Number(fillX()), y: Number(fillY()) };
+    return inWorld(tile) ? tile : null;
+  }
+  function setFillAnchor(tile: Tile) {
+    setFillX(String(tile.x));
+    setFillY(String(tile.y));
+  }
+  function centerFill() {
+    const boundary = selectedBoundary();
+    if (!boundary) return;
+    try {
+      setFillAnchor(boundaryFillAnchor(boundary.points));
+    } catch (error) {
+      notify(
+        error instanceof Error
+          ? error.message
+          : "Reshape this boundary before filling.",
+      );
+    }
+  }
+  function focusBoundary(boundary: Boundary) {
+    const pixels = boundary.points.map((tile) => worldToPixel(tile));
+    const width =
+      Math.max(...pixels.map((p) => p.x)) - Math.min(...pixels.map((p) => p.x));
+    const height =
+      Math.max(...pixels.map((p) => p.y)) - Math.min(...pixels.map((p) => p.y));
+    const canvas = document
+      .querySelector(".world-canvas")
+      ?.getBoundingClientRect();
+    let center = boundary.points[0];
+    try {
+      center = boundaryFillAnchor(boundary.points);
+    } catch {
+      /* Open/invalid boundaries remain selectable for editing. */
+    }
+    map?.focus(
+      center,
+      Math.min(
+        1.05,
+        (canvas?.width ?? 700) / (width + 220),
+        (canvas?.height ?? 700) / (height + 220),
+      ),
+    );
+  }
+  function openBoundaryFill(id: string) {
+    const boundary = plan().boundaries.find((b) => b.id === id);
+    if (!boundary) return;
+    useTool("select");
+    setSelected(id);
+    setTab("inspect");
+    setMobilePanel(true);
+    focusBoundary(boundary);
+    document.querySelector(".side-panel")?.scrollTo({ top: 0 });
+  }
+  function chooseFillStrategy(id: string) {
+    commit((p) => {
+      if (["regular-tile", "regular-tight", "regular-loose"].includes(id)) {
+        p.settings.strategyId = "regular";
+        p.settings.spacing = id.slice(8) as Spacing;
+      } else p.settings.strategyId = id;
+    });
+  }
+  function orientFill(turns = 0, flip = false, reset = false) {
+    commit((p) => {
+      p.settings.rotation = reset ? 0 : (p.settings.rotation + turns + 6) % 6;
+      p.settings.mirrored = reset
+        ? false
+        : flip
+          ? !p.settings.mirrored
+          : p.settings.mirrored;
+    });
+  }
+  function reviewFillWarnings() {
+    const proposed = fillPreview()?.placements ?? [];
+    const ids = new Set(proposed.map((p) => p.id));
+    const entries =
+      currentFillAudit()?.result?.entries.filter(
+        (e) => ids.has(e.placementId) && e.analysis.risk === "two-fit",
+      ) ?? [];
+    if (!entries.length) return;
+    const index = entries.findIndex((e) => e.placementId === fillRiskId());
+    const target = entries[(index + 1) % entries.length];
+    const placement = proposed.find((p) => p.id === target.placementId)!;
+    setFillRiskId(target.placementId);
+    map?.focus(placement, 1.1);
+    setMobilePanel(false);
+    notify(
+      `Preview HQ X:${placement.x} Y:${placement.y}: Enemy A and B ${target.confidence === "known" ? "can both fit" : "could both fit, assuming unverified terrain is usable,"} if this HQ is lost. Boundary lines do not block them.`,
+    );
+  }
   function computeFill() {
     const boundary = selectedBoundary(),
-      anchor = typedTile();
+      anchor = readFillAnchor();
     if (!boundary?.closed || !anchor)
       throw new Error("Choose a closed wedge and a valid anchor.");
     const result = smartFillBoundary({
@@ -819,6 +980,9 @@ export default function Planner() {
       const result = computeFill();
       setFillPreview(result);
       setTool("select");
+      setFillRiskId(null);
+      if (selectedBoundary()) focusBoundary(selectedBoundary()!);
+      setMobilePanel(false);
       notify(
         result.accepted
           ? `Previewing ${result.accepted} placements. Apply to add them to your plan.`
@@ -831,7 +995,7 @@ export default function Planner() {
   function applyFill() {
     try {
       const prior = fillPreview();
-      if (!prior) return;
+      if (!prior?.accepted || fillSafety()?.status !== "ready") return;
       const fresh = computeFill();
       const key = (p: Placement) => `${p.kind}:${p.x},${p.y}:${p.groupId}`;
       if (
@@ -844,8 +1008,17 @@ export default function Planner() {
         );
         return;
       }
-      commit((p) => p.placements.push(...fresh.placements));
-      notify(`Added ${fresh.accepted} positions.`);
+      if (
+        !commit((p) => {
+          p.placements.push(...fresh.placements);
+          // Keep manual single-HQ continuation aligned to this fill when there is no prior plot.
+          if (!p.plotAnchor) p.plotAnchor = readFillAnchor();
+        })
+      )
+        return;
+      notify(
+        `Added ${fresh.accepted} HQs. Select any coral warning to compare tighter edge placements.`,
+      );
     } catch (e) {
       setFillPreview(null);
       notify(e instanceof Error ? e.message : "Could not apply the fill.");
@@ -873,6 +1046,8 @@ export default function Planner() {
     setSelected(id);
     setTool("select");
     setTab("inspect");
+    setMobilePanel(true);
+    document.querySelector(".side-panel")?.scrollTo({ top: 0 });
   }
   function reviewNextEdge() {
     cancelEdgePreview();
@@ -1171,6 +1346,11 @@ export default function Planner() {
         e.shiftKey ? redo() : undo();
         return;
       }
+      if (e.key === "Escape" && tool() === "fill-anchor") {
+        setTool("select");
+        setMobilePanel(true);
+        return;
+      }
       if (e.key === "Escape") {
         setPinnedPreview(null);
         setDraft([]);
@@ -1241,12 +1421,54 @@ export default function Planner() {
     selected();
     xInput();
     yInput();
+    fillX();
+    fillY();
     strategy();
     formation();
     group();
     rotation();
     mirrored();
     setFillPreview(null);
+  });
+  let lastFillBoundary: string | null = null;
+  createEffect(() => {
+    const boundary = selectedBoundary();
+    const id = boundary?.id ?? null;
+    if (id === lastFillBoundary) return;
+    lastFillBoundary = id;
+    if (!boundary?.closed) return;
+    untrack(() => {
+      try {
+        setFillAnchor(plan().plotAnchor ?? boundaryFillAnchor(boundary.points));
+      } catch {
+        setFillAnchor(boundary.points[0]);
+      }
+    });
+  });
+  createEffect(() => {
+    const snapshot = plan();
+    const preview = fillPreview();
+    setFillRiskId(null);
+    setFillAudit(null);
+    if (!preview || !ready()) return;
+    let canceled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const result = await safetyWorker!.audit({
+          ...snapshot,
+          placements: [...snapshot.placements, ...preview.placements],
+        });
+        if (!canceled && plan() === snapshot && fillPreview() === preview)
+          setFillAudit({ snapshot, preview, result });
+      } catch {
+        if (!canceled && plan() === snapshot && fillPreview() === preview)
+          setFillAudit({ snapshot, preview, failed: true });
+      }
+    }, 0);
+    onCleanup(() => {
+      canceled = true;
+      clearTimeout(timer);
+    });
   });
   createEffect(() => {
     const p = plan();
@@ -1333,10 +1555,23 @@ export default function Planner() {
               plotTarget={plotTarget()?.tile}
               boundaryDraft={draft()}
               measure={measure()}
-              riskTiles={tighteningPreview() ? [] : (risk()?.witnessPair ?? [])}
+              riskTiles={
+                fillPreview()
+                  ? (fillRisk()?.analysis.witnessPair ?? [])
+                  : tighteningPreview()
+                    ? []
+                    : (risk()?.witnessPair ?? [])
+              }
+              fillAnchor={
+                selectedBoundary()?.closed && tab() === "inspect"
+                  ? (readFillAnchor() ?? undefined)
+                  : undefined
+              }
               safetyWarnings={safetyWarnings()}
               existingOpenTiles={
-                showOpenCenters() ? (risk()?.existingOpen ?? []) : []
+                !fillPreview() && showOpenCenters()
+                  ? (risk()?.existingOpen ?? [])
+                  : []
               }
               tighteningPreview={tighteningPreview()}
               onHover={(tile) => {
@@ -1392,7 +1627,7 @@ export default function Planner() {
                   : "Unverified terrain ↗"}
               </button>
             </div>
-            <Show when={summary().hq}>
+            <Show when={summary().hq && !fillPreview()}>
               <button
                 class="map-safety-status"
                 classList={{
@@ -1435,6 +1670,70 @@ export default function Planner() {
               <Redo2 size={18} />
             </ToolButton>
           </div>
+          <Show when={tool() === "fill-anchor"}>
+            <div class="floating-instruction">
+              <Crosshair size={16} />
+              <span>Click a tile or existing HQ to align the fill.</span>
+              <button
+                class="text-button"
+                onClick={() => {
+                  setTool("select");
+                  setMobilePanel(true);
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </Show>
+          <Show when={fillPreview()}>
+            {(fill) => (
+              <div
+                class="floating-instruction fill-preview-banner"
+                role="status"
+              >
+                <Layers size={16} />
+                <span>
+                  <b>
+                    {fill().accepted} {fill().accepted === 1 ? "HQ" : "HQs"} ·
+                    preview only
+                  </b>
+                  <span>
+                    {fillSafety()?.status === "checking"
+                      ? "Checking HQ losses…"
+                      : fillSafety()?.status === "error"
+                        ? "Loss check unavailable"
+                        : fillSafety()?.invalid
+                          ? "Existing positions need review"
+                          : `${fillSafety()?.proposedTwoFit ?? 0} proposed HQ loss warnings${fillSafety()?.uncertain ? " · unverified terrain" : ""}`}
+                  </span>
+                </span>
+                <button
+                  class="text-button"
+                  onClick={() => {
+                    setTab("inspect");
+                    setMobilePanel(true);
+                    requestAnimationFrame(() => {
+                      const panel =
+                        document.querySelector<HTMLElement>(".side-panel");
+                      const result = panel?.querySelector<HTMLElement>(
+                        ".boundary-fill-result",
+                      );
+                      if (panel && result)
+                        panel.scrollTo({
+                          top:
+                            panel.scrollTop +
+                            result.getBoundingClientRect().top -
+                            panel.getBoundingClientRect().top -
+                            60,
+                        });
+                    });
+                  }}
+                >
+                  Review &amp; apply
+                </button>
+              </div>
+            )}
+          </Show>
           <Show when={tool() === "boundary"}>
             <div class="floating-instruction">
               <Pentagon size={16} />
@@ -1467,7 +1766,13 @@ export default function Planner() {
               </span>
             </div>
           </Show>
-          <Show when={!plan().placements.length && tool() === "select"}>
+          <Show
+            when={
+              !plan().placements.length &&
+              !plan().boundaries.length &&
+              tool() === "select"
+            }
+          >
             <div class="canvas-empty">
               <span class="mini-eyebrow">A CLEAR PLAN. A STRONGER FRONT.</span>
               <h2>Make every tile count.</h2>
@@ -1554,7 +1859,9 @@ export default function Planner() {
                   : "Hover to inspect a tile"}
             </span>
             <span class="status-tool">
-              {tools.find((t) => t.id === tool())?.label}
+              {tool() === "fill-anchor"
+                ? "Pick fill anchor"
+                : tools.find((t) => t.id === tool())?.label}
               <span>·</span>Scroll to zoom · Space + drag to pan
             </span>
             <span>
@@ -1607,6 +1914,61 @@ export default function Planner() {
               <Tabs.Trigger value="layers">Layers</Tabs.Trigger>
             </Tabs.List>
             <Tabs.Content value="plan">
+              <div class="panel-section boundary-fill-entry">
+                <div class="section-label">
+                  BOUNDARY AUTO-FILL <Pentagon size={14} />
+                </div>
+                <p class="field-help">
+                  Fill a closed area with your chosen HQ strategy. Preview
+                  terrain clearance and loss warnings before adding positions.
+                </p>
+                <Show when={plan().boundaries.some((b) => b.closed)}>
+                  <label class="field">
+                    <span>Closed boundary</span>
+                    <select
+                      aria-label="Auto-fill boundary"
+                      value={fillBoundaryChoice()}
+                      onChange={(e) =>
+                        setFillBoundaryChoice(e.currentTarget.value)
+                      }
+                    >
+                      <option value="">Choose a boundary…</option>
+                      <For each={plan().boundaries.filter((b) => b.closed)}>
+                        {(b) => (
+                          <option
+                            value={b.id}
+                            selected={fillBoundaryChoice() === b.id}
+                          >
+                            {b.name}
+                          </option>
+                        )}
+                      </For>
+                    </select>
+                  </label>
+                  <button
+                    class="button primary full"
+                    disabled={
+                      !plan().boundaries.some(
+                        (b) => b.closed && b.id === fillBoundaryChoice(),
+                      )
+                    }
+                    onClick={() => openBoundaryFill(fillBoundaryChoice())}
+                  >
+                    <Layers size={15} />
+                    Set up auto-fill
+                  </button>
+                </Show>
+                <button
+                  class="button subtle full"
+                  onClick={() => {
+                    useTool("boundary");
+                    setMobilePanel(false);
+                  }}
+                >
+                  <Plus size={15} />
+                  Draw a fill boundary
+                </button>
+              </div>
               <Show when={summary().hq}>
                 <div class="panel-section edge-overview">
                   <Toggle
@@ -2055,86 +2417,45 @@ export default function Planner() {
                           reshape, or drag a line to move the boundary.
                         </p>
                         <Show when={b().closed}>
-                          <div class="fill-card">
-                            <div class="section-label">SMART FILL</div>
-                            <p class="field-help">
-                              {activeStrategy().name} · {activeGroup().name}.
-                              Change the pattern in Build. Coordinates set the
-                              lattice anchor.
-                            </p>
-                            <div class="coordinate-fields">
-                              <label>
-                                X
-                                <input
-                                  aria-label="Fill anchor X"
-                                  value={xInput()}
-                                  onInput={(e) =>
-                                    setXInput(e.currentTarget.value)
-                                  }
-                                />
-                              </label>
-                              <label>
-                                Y
-                                <input
-                                  aria-label="Fill anchor Y"
-                                  value={yInput()}
-                                  onInput={(e) =>
-                                    setYInput(e.currentTarget.value)
-                                  }
-                                />
-                              </label>
-                            </div>
-                            <button
-                              class="button subtle full"
-                              onClick={previewFill}
-                            >
-                              <Layers size={15} />
-                              Preview smart placement
-                            </button>
-                            <Show when={fillPreview()}>
-                              {(f) => (
-                                <div class="fill-result">
-                                  <strong>
-                                    {f().accepted} positions fit the current
-                                    rules
-                                  </strong>
-                                  <Show when={f().provisional}>
-                                    <p class="field-help">
-                                      {f().provisional} positions use
-                                      provisional terrain.
-                                    </p>
-                                  </Show>
-                                  <p class="field-help">
-                                    Skipped: {f().rejected.boundary} outside
-                                    wedge · {f().rejected.terrain} terrain ·{" "}
-                                    {f().rejected.collision +
-                                      f().rejected.spacing}{" "}
-                                    collision / spacing.
-                                  </p>
-                                  <Show when={f().truncated}>
-                                    <p class="field-help">
-                                      Preview capped at 250 placements / 4,000
-                                      candidates. Narrow the wedge to inspect
-                                      the rest.
-                                    </p>
-                                  </Show>
-                                  <button
-                                    class="button primary full"
-                                    disabled={!f().accepted}
-                                    onClick={applyFill}
-                                  >
-                                    Apply {f().accepted} positions
-                                  </button>
-                                  <button
-                                    class="button subtle full"
-                                    onClick={() => setFillPreview(null)}
-                                  >
-                                    Discard preview
-                                  </button>
-                                </div>
-                              )}
-                            </Show>
-                          </div>
+                          <BoundaryFillPanel
+                            strategies={registry().strategies}
+                            strategyId={activeStrategy().id}
+                            groupOptions={plan().groups}
+                            groupId={activeGroup().id}
+                            rotation={rotation()}
+                            mirrored={mirrored()}
+                            anchorX={fillX()}
+                            anchorY={fillY()}
+                            hasPlotAnchor={Boolean(plan().plotAnchor)}
+                            pickingAnchor={tool() === "fill-anchor"}
+                            result={fillPreview()}
+                            safety={fillSafety()}
+                            onStrategy={chooseFillStrategy}
+                            onGroup={setGroup}
+                            onRotate={(turns) => orientFill(turns)}
+                            onFlip={() => orientFill(0, true)}
+                            onReset={() => orientFill(0, false, true)}
+                            onAnchorX={setFillX}
+                            onAnchorY={setFillY}
+                            onCenter={centerFill}
+                            onUsePlot={() => {
+                              if (plan().plotAnchor)
+                                setFillAnchor(plan().plotAnchor!);
+                            }}
+                            onPickAnchor={() => {
+                              if (tool() === "fill-anchor") {
+                                setTool("select");
+                                return;
+                              }
+                              setFillPreview(null);
+                              setTool("fill-anchor");
+                              setMobilePanel(false);
+                            }}
+                            onPreview={previewFill}
+                            onApply={applyFill}
+                            onDiscard={() => setFillPreview(null)}
+                            onReviewWarnings={reviewFillWarnings}
+                          />
                         </Show>
                         <button
                           class="button danger full"
@@ -2424,8 +2745,7 @@ export default function Planner() {
                     {(b) => (
                       <button
                         onClick={() => {
-                          setSelected(b.id);
-                          map?.focus(b.points[0]);
+                          openBoundaryFill(b.id);
                         }}
                       >
                         <Pentagon size={14} />

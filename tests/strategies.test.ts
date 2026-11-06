@@ -4,13 +4,17 @@ import {
   distance,
   footprint,
   footprintInBoundary,
+  inWorld,
   key,
   offset,
+  tileInBoundary,
+  toAxial,
   type Tile,
 } from "../src/domain/geometry";
 import { createPlan, PlanSchema, type Placement } from "../src/domain/schema";
 import {
   BUILTIN_STRATEGIES,
+  boundaryFillAnchor,
   createStrategyRegistry,
   parseStrategyConfig,
   regularStrategy,
@@ -20,6 +24,8 @@ import {
   type SmartFillOptions,
   type Strategy,
 } from "../src/domain/strategies";
+import { nearestPlotSites } from "../src/domain/plot";
+import { orientVector } from "../src/domain/orientation";
 
 const anchor = { x: 500, y: 500 };
 const boundary = [
@@ -288,4 +294,162 @@ test("boundary and ID validation reject corrupt proposals", () => {
   );
   assert.throws(() => smartFillBoundary(options({ makeId: () => "same" })));
   assert.throws(() => smartFillBoundary(options({ anchor: { x: -1, y: 0 } })));
+});
+
+test("boundary anchors stay inside concave and world-edge polygons without assuming usable terrain", () => {
+  const concave = [
+    { x: 486, y: 486 },
+    { x: 514, y: 486 },
+    { x: 514, y: 490 },
+    { x: 490, y: 490 },
+    { x: 490, y: 510 },
+    { x: 514, y: 510 },
+    { x: 514, y: 514 },
+    { x: 486, y: 514 },
+  ];
+  for (const polygon of [
+    boundary,
+    concave,
+    [
+      { x: 0, y: 0 },
+      { x: 8, y: 0 },
+      { x: 0, y: 7 },
+    ],
+  ]) {
+    const actual = boundaryFillAnchor(polygon);
+    assert.ok(inWorld(actual));
+    assert.ok(tileInBoundary(actual, polygon));
+    assert.deepEqual(actual, boundaryFillAnchor([...polygon].reverse()));
+  }
+  assert.deepEqual(boundaryFillAnchor(boundary), anchor);
+  assert.throws(() => boundaryFillAnchor([]));
+  assert.throws(() => boundaryFillAnchor([anchor, anchor, anchor]));
+});
+
+test("bounded nearest lattice enumeration matches an independent world-tile oracle for skew, rotation and mirror", () => {
+  const bounds = { minX: 490, maxX: 510, minY: 491, maxY: 511 },
+    target = { x: 501, y: 500 };
+  for (const raw of [
+    [
+      { q: 100, r: 99 },
+      { q: 99, r: 98 },
+    ],
+    [
+      { q: 100, r: 98 },
+      { q: 99, r: 97 },
+    ],
+    custom.basis,
+  ]) {
+    for (let turns = 0; turns < 6; turns++)
+      for (const mirrored of [false, true]) {
+        const a = orientVector(raw[0], turns, mirrored),
+          b = orientVector(raw[1], turns, mirrored);
+        const lattice = { anchor, basis: [a, b] as [typeof a, typeof b] };
+        const origin = toAxial(anchor),
+          determinant = a.q * b.r - a.r * b.q;
+        const expected: Tile[] = [];
+        for (let y = bounds.minY; y <= bounds.maxY; y++)
+          for (let x = bounds.minX; x <= bounds.maxX; x++) {
+            const tile = { x, y },
+              p = toAxial(tile),
+              q = p.q - origin.q,
+              r = p.r - origin.r;
+            if (
+              (q * b.r - r * b.q) % determinant === 0 &&
+              (a.q * r - a.r * q) % determinant === 0
+            )
+              expected.push(tile);
+          }
+        const cost = (tile: Tile) => {
+          const dx2 = 2 * (tile.x - target.x) + (tile.y & 1) - (target.y & 1),
+            dy = tile.y - target.y;
+          return dx2 * dx2 + 3 * dy * dy;
+        };
+        expected.sort((a, b) => cost(a) - cost(b) || a.y - b.y || a.x - b.x);
+        const actual = nearestPlotSites(lattice, bounds, target, 31);
+        assert.deepEqual(
+          actual.sites.map(({ tile }) => tile),
+          expected.slice(0, 31),
+        );
+        assert.equal(actual.candidateCount, expected.length);
+        assert.equal(actual.truncated, expected.length > 31);
+      }
+  }
+});
+
+test("remote plot origins fill near the boundary and keep deterministic preview ordering under caps", () => {
+  const remote = options({ anchor: { x: 0, y: 0 }, maxCandidates: 5 });
+  const first = smartFillBoundary(remote);
+  assert.equal(first.accepted, 5);
+  assert.equal(first.considered, 5);
+  assert.equal(first.truncated, true);
+  assert.ok(
+    first.placements.every((tile) => footprintInBoundary(tile, boundary)),
+  );
+  const equivalentPhase = smartFillBoundary(
+    options({ anchor: { x: 4, y: 0 }, maxCandidates: 5 }),
+  );
+  assert.deepEqual(
+    first.placements.map(key),
+    equivalentPhase.placements.map(key),
+  );
+  assert.ok(first.placements.every((tile) => distance(tile, anchor) <= 8));
+});
+
+test("highly skewed fill inspects real nearby world sites instead of an enormous coefficient box", () => {
+  const skewed = {
+    ...custom,
+    basis: [
+      { q: 100, r: 99 },
+      { q: 99, r: 98 },
+    ] as Strategy["basis"],
+    minGap: 0,
+    rotation: 0,
+  };
+  const result = smartFillBoundary(
+    options({ strategy: skewed, maxCandidates: 40 }),
+  );
+  assert.equal(result.considered, 40);
+  assert.ok(result.accepted >= 4);
+  assert.ok(result.candidateCount < 1000);
+  for (let i = 0; i < result.placements.length; i++) {
+    assert.ok(footprintInBoundary(result.placements[i], boundary));
+    for (let j = 0; j < i; j++)
+      assert.ok(distance(result.placements[i], result.placements[j]) >= 3);
+  }
+});
+
+test("repeated fills assign unique position names in the chosen group and preserve existing records", () => {
+  const existing = [
+    { ...hq({ x: 700, y: 700 }, "old-1"), groupId: "grass", name: "Grass 01" },
+    { ...hq({ x: 710, y: 700 }, "old-3"), groupId: "grass", name: "Grass 03" },
+    { ...hq({ x: 720, y: 700 }, "other-2"), groupId: "mud", name: "Grass 02" },
+  ];
+  const snapshot = structuredClone(existing);
+  const result = smartFillBoundary(
+    options({ placements: existing, namePrefix: "Grass", maxPlacements: 3 }),
+  );
+  assert.deepEqual(
+    result.placements.map(({ name }) => name),
+    ["Grass 02", "Grass 04", "Grass 05"],
+  );
+  assert.deepEqual(existing, snapshot);
+  let id = 0;
+  const next = smartFillBoundary(
+    options({
+      placements: [...existing, ...result.placements],
+      namePrefix: "Grass",
+      maxPlacements: 2,
+      makeId: () => `next-${++id}`,
+    }),
+  );
+  assert.deepEqual(
+    next.placements.map(({ name }) => name),
+    ["Grass 06", "Grass 07"],
+  );
+  assert.ok(
+    next.placements.every((p) =>
+      result.placements.every((other) => distance(p, other) >= 4),
+    ),
+  );
 });

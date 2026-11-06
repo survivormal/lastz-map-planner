@@ -1488,21 +1488,26 @@ kbd {
     transform: none;
   }
 }
-.fill-card {
-  margin-top: 19px;
-  padding-top: 15px;
-  border-top: 1px solid #48533c;
+.boundary-fill-entry .button + .button {
+  margin-top: 8px;
 }
-.fill-result {
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 6px;
-  background: #c4eca60b;
-  border: 1px solid #68834b55;
+.boundary-fill-entry select,
+.boundary-fill-entry button {
+  min-height: 44px;
 }
-.fill-result strong {
-  font-size: 12px;
-  color: #c4eca6;
+.tool-fill-anchor {
+  cursor: crosshair;
+}
+.fill-preview-banner > span {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+}
+.fill-preview-banner > span > span {
+  color: #d2bd9e;
+}
+.fill-preview-banner .text-button {
+  min-height: 44px;
 }
 .heading-meta .reference-badge {
   pointer-events: auto;

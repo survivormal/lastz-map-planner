@@ -29,6 +29,7 @@ export type MapTool =
   | "hq"
   | "food"
   | "wood"
+  | "fill-anchor"
   | "boundary"
   | "erase"
   | "measure"
@@ -55,6 +56,7 @@ type Props = {
   tighteningPreview?: { from?: Tile; to: Tile; kind: "move" | "infill" };
   plotGuide?: { anchor: Tile; basis: [Axial, Axial] };
   plotTarget?: Tile;
+  fillAnchor?: Tile;
   onHover: (tile: Tile | null) => void;
   onClick: (tile: Tile, placement?: Placement) => void;
   onMove: (id: string, tile: Tile) => void;
@@ -806,7 +808,6 @@ export default function WorldMap(props: Props) {
       if (props.plan.settings.showLabels && c.zoom > 0.52)
         label(ctx, p.name || "Unassigned", q.x, q.y + 43, color);
     }
-    drawSafetyOverlays(ctx);
     if (props.preview.length)
       for (const tile of props.preview)
         drawFootprint(
@@ -816,7 +817,16 @@ export default function WorldMap(props: Props) {
           0.3,
           true,
         );
+    drawSafetyOverlays(ctx);
     drawPlotTarget(ctx);
+    if (props.fillAnchor) {
+      const p = worldToPixel(props.fillAnchor);
+      if (visiblePixel(p)) {
+        badge(ctx, "+", p.x, p.y, "#f3d588", 8);
+        if (c.zoom >= 0.4 && !props.riskTiles.length)
+          label(ctx, "FILL ANCHOR", p.x, p.y - 25 / c.zoom, "#f3d588");
+      }
+    }
     drawTighteningPreview(ctx);
     const draft = props.boundaryDraft.length
       ? props.boundaryDraft
@@ -1275,6 +1285,7 @@ export default function WorldMap(props: Props) {
     props.tighteningPreview;
     props.plotGuide;
     props.plotTarget;
+    props.fillAnchor;
     props.terrainAt;
     if (pointer && pointer.tool !== props.tool) cancelPointer();
     schedule();
