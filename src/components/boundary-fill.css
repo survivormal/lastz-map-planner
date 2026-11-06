@@ -20,28 +20,87 @@
   padding: 0;
   border: 0;
 }
-.boundary-fill-mode {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  margin: 15px 0 8px;
+.boundary-fill-goal,
+.boundary-fill-goal-result {
+  margin: 10px 0;
+  padding: 10px 11px;
+  border: 1px solid #71945980;
+  border-radius: 7px;
+  background: #c4eca60b;
+  color: #d3e5c7;
+  font-size: 11px;
+  line-height: 1.6;
 }
-.boundary-fill-mode > button {
+.boundary-fill-goal-result.is-blocked {
+  border-color: #bc866680;
+  background: #48302555;
+  color: #f4c9b3;
+}
+.boundary-fill-preserve {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 7px 5px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 11px;
-  line-height: 1.4;
+  gap: 9px;
+  min-height: 44px;
+  margin-top: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
 }
-.boundary-fill-mode svg {
+.boundary-fill-preserve[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.boundary-fill-preserve [data-part="control"] {
+  display: grid;
+  place-items: center;
   flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #819477;
+  border-radius: 5px;
+  background: #142019;
+  color: #18251a;
+}
+.boundary-fill-preserve [data-part="control"][data-state="checked"] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.boundary-fill-preserve [data-part="control"][data-focus-visible] {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.boundary-fill-preserve [data-part="indicator"] {
+  display: grid;
+  place-items: center;
+}
+.boundary-fill-removals {
+  margin: 12px 0;
+  padding: 0 10px;
+  border: 1px solid #a4735b;
+  border-radius: 7px;
+  background: #3b2b2355;
+  color: #f4c9b3;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.boundary-fill-removals summary {
+  min-height: 44px;
+  padding: 12px 0;
+  cursor: pointer;
+  font-weight: 600;
+}
+.boundary-fill-removals summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.boundary-fill-removals p {
+  margin: 0 0 10px;
+}
+.boundary-fill-removals ul {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
 }
 .boundary-fill-progress {
   margin-top: 14px;

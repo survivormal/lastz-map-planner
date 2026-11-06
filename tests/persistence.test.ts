@@ -36,6 +36,7 @@ test("JSON round trip preserves names, groups, assignments, and display settings
   const plan = createPlan("802 · 泥地 plan");
   assert.equal(plan.settings.terrainStyle, "game");
   assert.equal(plan.settings.fillMode, "auto");
+  assert.equal(plan.settings.fillPreserveExisting, false);
   plan.settings.terrainStyle = "tactical";
   plan.settings.fillMode = "exact";
   plan.placements.push({
@@ -52,6 +53,18 @@ test("JSON round trip preserves names, groups, assignments, and display settings
   if (!result.ok) return;
   const loaded = parsePlan(result.value);
   assert.deepEqual(loaded, { ok: true, value: plan });
+  const fewest = {
+    ...plan,
+    settings: {
+      ...plan.settings,
+      fillMode: "fewest",
+      fillPreserveExisting: true,
+    },
+  };
+  assert.deepEqual(parsePlan(JSON.stringify(fewest)), {
+    ok: true,
+    value: fewest,
+  });
   const legacy = parsePlan(
     JSON.stringify({
       ...plan,
@@ -59,6 +72,7 @@ test("JSON round trip preserves names, groups, assignments, and display settings
         ...plan.settings,
         terrainStyle: undefined,
         fillMode: undefined,
+        fillPreserveExisting: undefined,
       },
     }),
   );

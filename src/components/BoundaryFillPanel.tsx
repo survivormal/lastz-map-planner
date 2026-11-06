@@ -1,6 +1,8 @@
 import { createUniqueId, For, Show } from "solid-js";
+import { Checkbox } from "@ark-ui/solid/checkbox";
 import {
   AlertTriangle,
+  Check,
   Crosshair,
   FlipVertical2,
   Layers,
@@ -26,6 +28,9 @@ export type BoundaryOptimizationSummary = {
   after: OptimizationMetrics;
   moved: number;
   added: number;
+  removed: number;
+  removedNames?: string[];
+  coverageComplete: boolean;
   truncated: boolean;
   reason?: string;
   seedCount: number;
@@ -43,6 +48,8 @@ export type BoundaryFillPanelProps = {
   hasPlotAnchor: boolean;
   pickingAnchor: boolean;
   autoTighten: boolean;
+  fewestHqs: boolean;
+  preserveExisting: boolean;
   optimizing: boolean;
   optimization: BoundaryOptimizationSummary | null;
   result: SmartFillResult | null;
@@ -67,7 +74,8 @@ export type BoundaryFillPanelProps = {
   onApply: () => void;
   onDiscard: () => void;
   onReviewWarnings: () => void;
-  onAutoTighten: (value: boolean) => void;
+  onFillMode: (value: Plan["settings"]["fillMode"]) => void;
+  onPreserveExisting: (value: boolean) => void;
   onCancelOptimization: () => void;
 };
 
@@ -77,13 +85,37 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
   const strategy = () =>
     props.strategies.find((value) => value.id === props.strategyId);
   const ready = () => props.safety?.status === "ready";
+  const fillMode = () =>
+    props.fewestHqs ? "fewest" : props.autoTighten ? "auto" : "exact";
+  const mayRemoveExisting = () => props.fewestHqs && !props.preserveExisting;
+  const qualifiesForFewest = () => {
+    const result = props.optimization;
+    return (
+      result?.status === "resolved" &&
+      result.coverageComplete &&
+      result.after.twoFit === 0 &&
+      result.after.openCenters === 0 &&
+      result.after.invalid === 0 &&
+      result.after.uncertain === 0
+    );
+  };
   const optimizationReady = () =>
     props.optimization &&
     props.optimization.status !== "blocked" &&
-    props.optimization.moved + props.optimization.added > 0;
+    props.optimization.moved +
+      props.optimization.added +
+      props.optimization.removed >
+      0 &&
+    (!props.optimization.removed ||
+      props.optimization.removedNames?.length === props.optimization.removed) &&
+    (!props.fewestHqs || qualifiesForFewest());
   const optimizationHeading = () => {
     const result = props.optimization;
     if (!result) return "Boundary comparison";
+    if (props.fewestHqs)
+      return qualifiesForFewest()
+        ? "Fewest qualifying HQs found"
+        : "No qualifying layout found";
     if (result.status === "blocked") return "Optimization needs review";
     if (result.after.invalid || result.after.uncertain)
       return "Terrain or placements need review";
@@ -101,26 +133,65 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
       </div>
       <p class="field-help">
         {props.autoTighten
-          ? "Fill and tighten this area automatically. HQs wholly inside may move; their names and assignments stay attached. Outside HQs and blockers stay fixed."
+          ? mayRemoveExisting()
+            ? "Find a smaller layout for this area. HQs wholly inside may move or be removed; retained HQs keep their names and assignments. Outside HQs and blockers stay fixed."
+            : "Fill and tighten this area automatically. HQs wholly inside may move; their names and assignments stay attached. Outside HQs and blockers stay fixed."
           : "Fill this closed area with individual HQs. Every seven-tile footprint stays inside the boundary; existing placements stay put."}
       </p>
       <fieldset class="boundary-fill-controls" disabled={props.optimizing}>
-        <div class="boundary-fill-mode" role="group" aria-label="Fill method">
-          <button
-            type="button"
-            aria-pressed={props.autoTighten}
-            onClick={() => props.onAutoTighten(true)}
+        <label class="field">
+          <span>Fill method</span>
+          <select
+            value={fillMode()}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              if (value === "auto" || value === "fewest" || value === "exact")
+                props.onFillMode(value);
+            }}
           >
-            <Shield size={15} aria-hidden="true" /> Auto-tighten
-          </button>
-          <button
-            type="button"
-            aria-pressed={!props.autoTighten}
-            onClick={() => props.onAutoTighten(false)}
+            <option value="fewest" selected={props.fewestHqs}>
+              Fewest HQs
+            </option>
+            <option
+              value="auto"
+              selected={props.autoTighten && !props.fewestHqs}
+            >
+              Auto-tighten
+            </option>
+            <option value="exact" selected={!props.autoTighten}>
+              Exact strategy
+            </option>
+          </select>
+        </label>
+        <Show when={props.fewestHqs}>
+          <p class="boundary-fill-goal">
+            Find the fewest HQs with zero two-HQ loss warnings and no open HQ
+            centers inside this boundary. Both counts must be zero before you
+            can apply a layout.
+          </p>
+          <Checkbox.Root
+            class="boundary-fill-preserve"
+            checked={props.preserveExisting}
+            disabled={props.optimizing}
+            onCheckedChange={(details) =>
+              props.onPreserveExisting(details.checked === true)
+            }
+            aria-describedby={`${id}-preserve`}
           >
-            <Layers size={15} aria-hidden="true" /> Exact strategy
-          </button>
-        </div>
+            <Checkbox.Control>
+              <Checkbox.Indicator>
+                <Check size={14} aria-hidden="true" />
+              </Checkbox.Indicator>
+            </Checkbox.Control>
+            <Checkbox.Label>Keep existing HQs</Checkbox.Label>
+            <Checkbox.HiddenInput />
+          </Checkbox.Root>
+          <p id={`${id}-preserve`} class="field-help">
+            {props.preserveExisting
+              ? "Retains every current HQ and assignment; only new additions are minimized."
+              : "Existing HQs wholly inside may be removed. Preview lists removals; Undo restores them. Nothing is removed until you apply."}
+          </p>
+        </Show>
         <Show when={props.autoTighten}>
           <p class="field-help">
             Starts with your chosen pattern, then adjusts and adds HQs to close
@@ -162,7 +233,7 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
         <Show when={props.autoTighten && strategy()?.terrain === "mud"}>
           <p class="field-help">
             Planning rule: mud HQs may straddle the grass edge. The drawn
-            boundary still contains the full footprint. Existing pure-grass HQs
+            boundary still contains the full footprint. Retained pure-grass HQs
             stay on grass.
           </p>
         </Show>
@@ -301,21 +372,28 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
           disabled={props.pickingAnchor}
         >
           <Layers size={15} aria-hidden="true" />
-          {props.autoTighten
-            ? "Optimize boundary fill"
-            : props.result
-              ? "Rebuild fill preview"
-              : "Preview auto-fill"}
+          {props.fewestHqs
+            ? "Find fewest HQs"
+            : props.autoTighten
+              ? "Optimize boundary fill"
+              : props.result
+                ? "Rebuild fill preview"
+                : "Preview auto-fill"}
         </button>
       </fieldset>
 
       <Show when={props.optimizing}>
         <div class="boundary-fill-progress">
           <div role="status" aria-live="polite">
-            <strong>Comparing boundary layouts…</strong>
+            <strong>
+              {props.fewestHqs
+                ? "Comparing HQ counts…"
+                : "Comparing boundary layouts…"}
+            </strong>
             <p>
-              Testing gaps and HQ-loss openings, then tightening the complete
-              layout. Your plan stays unchanged until you apply the preview.
+              {props.fewestHqs
+                ? "Searching for fewer HQs while keeping both opening counts at zero. Your plan stays unchanged until you apply a qualifying preview."
+                : "Testing gaps and HQ-loss openings, then tightening the complete layout. Your plan stays unchanged until you apply the preview."}
             </p>
           </div>
           <button
@@ -344,10 +422,57 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
               {(optimization) => (
                 <div class="boundary-fill-optimization">
                   <h3>{optimizationHeading()}</h3>
+                  <Show when={props.fewestHqs}>
+                    <p
+                      class="boundary-fill-goal-result"
+                      classList={{ "is-blocked": !qualifiesForFewest() }}
+                    >
+                      {qualifiesForFewest()
+                        ? "Both opening counts are zero in the checked layout. This is the fewest HQs found by the bounded search, not a proven global minimum."
+                        : "This preview cannot be applied in Fewest HQs mode. A qualifying layout must have zero two-HQ loss warnings, zero open HQ centers, and complete terrain checks."}
+                    </p>
+                  </Show>
                   <p class="field-help">
-                    {optimization().moved} assigned HQs moved ·{" "}
-                    {optimization().added} new HQs added
+                    {optimization().moved} assigned HQ
+                    {optimization().moved === 1 ? "" : "s"} moved ·{" "}
+                    {optimization().added} new HQ
+                    {optimization().added === 1 ? "" : "s"} added
+                    <Show when={optimization().removed > 0}>
+                      {" "}
+                      · {optimization().removed} existing HQ
+                      {optimization().removed === 1 ? "" : "s"} removed
+                    </Show>
                   </p>
+                  <Show when={optimization().removed > 0}>
+                    <details class="boundary-fill-removals">
+                      <summary>
+                        Review {optimization().removed}{" "}
+                        {optimization().removed === 1
+                          ? "removed assignment"
+                          : "removed assignments"}
+                      </summary>
+                      <p>
+                        Removed only when you apply this layout. Undo restores
+                        these HQs and their assignments.
+                      </p>
+                      <ul>
+                        <For each={optimization().removedNames ?? []}>
+                          {(name) => <li>{name}</li>}
+                        </For>
+                      </ul>
+                      <Show
+                        when={
+                          optimization().removedNames?.length !==
+                          optimization().removed
+                        }
+                      >
+                        <p>
+                          The complete removal list is unavailable. Rebuild the
+                          preview before applying.
+                        </p>
+                      </Show>
+                    </details>
+                  </Show>
                   <p class="field-help">
                     Compared with the chosen strategy’s starting fill of{" "}
                     {optimization().seedCount} HQs, including existing
@@ -362,6 +487,13 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
                       </tr>
                     </thead>
                     <tbody>
+                      <Show when={props.fewestHqs}>
+                        <tr>
+                          <th scope="row">HQ count</th>
+                          <td>{optimization().seedCount}</td>
+                          <td>{result().accepted}</td>
+                        </tr>
+                      </Show>
                       <tr>
                         <th scope="row">Two-HQ loss warnings</th>
                         <td>{optimization().before.twoFit}</td>
@@ -397,8 +529,9 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
                   </Show>
                   <Show when={optimization().truncated}>
                     <p class="boundary-fill-notice">
-                      Search limit reached. This is the best layout found in the
-                      search; other improvements may exist.
+                      {props.fewestHqs
+                        ? "Search limit reached. A smaller qualifying layout may exist; this does not prove the minimum HQ count."
+                        : "Search limit reached. This is the best layout found in the search; other improvements may exist."}
                     </p>
                   </Show>
                   <Show
@@ -410,7 +543,9 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
                     <p class="boundary-fill-notice">
                       Openings remain. Try enlarging the boundary to give nearby
                       HQs room to adjust, confirm the terrain, and run
-                      auto-tighten again.
+                      {props.fewestHqs
+                        ? " the search again."
+                        : " auto-tighten again."}
                     </p>
                   </Show>
                 </div>
@@ -569,14 +704,16 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
               }
               onClick={props.onApply}
             >
-              {props.autoTighten
-                ? props.optimization &&
-                  (props.optimization.after.twoFit > 0 ||
-                    props.optimization.after.openCenters > 0 ||
-                    props.optimization.truncated)
-                  ? "Apply best found layout"
-                  : "Apply optimized layout"
-                : `Apply ${result().accepted} HQ positions`}
+              {props.fewestHqs
+                ? "Apply fewest found layout"
+                : props.autoTighten
+                  ? props.optimization &&
+                    (props.optimization.after.twoFit > 0 ||
+                      props.optimization.after.openCenters > 0 ||
+                      props.optimization.truncated)
+                    ? "Apply best found layout"
+                    : "Apply optimized layout"
+                  : `Apply ${result().accepted} HQ positions`}
             </button>
             <button
               class="button subtle full"
@@ -587,7 +724,9 @@ export default function BoundaryFillPanel(props: BoundaryFillPanelProps) {
             </button>
             <p class="field-help">
               {props.autoTighten
-                ? "Applies the complete layout in one step, preserving existing names and assignments. Undo restores the previous layout."
+                ? mayRemoveExisting()
+                  ? "Applies the complete layout and the listed removals in one step. Retained HQs keep their names and assignments. Undo restores the previous layout, including removed HQs."
+                  : "Applies the complete layout in one step, preserving existing names and assignments. Undo restores the previous layout."
                 : "Adds named assignments to the plan. Undo removes the whole fill. Switch to Auto-tighten to compare adjustments across this boundary automatically."}
             </p>
           </div>

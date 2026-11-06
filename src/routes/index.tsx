@@ -202,7 +202,8 @@ export default function Planner() {
   const [fillPreview, setFillPreview] = createSignal<SmartFillResult | null>(
     null,
   );
-  const autoTighten = () => plan().settings.fillMode === "auto";
+  const autoTighten = () => plan().settings.fillMode !== "exact";
+  const fewestHqs = () => plan().settings.fillMode === "fewest";
   const [optimizingFill, setOptimizingFill] = createSignal(false);
   const [applyingFill, setApplyingFill] = createSignal(false);
   const [optimizationState, setOptimizationState] = createSignal<{
@@ -322,9 +323,14 @@ export default function Planner() {
           after: result.after,
           moved: result.movedIds.length,
           added: result.addedIds.length,
+          removed: result.removedIds.length,
+          removedNames: plan().placements
+            .filter((p) => result.removedIds.includes(p.id))
+            .map((p) => p.name || "Unassigned"),
           truncated: result.truncated,
           reason: result.reason,
           seedCount: result.seedCount,
+          coverageComplete: result.coverageComplete,
         }
       : null;
   });
@@ -981,6 +987,8 @@ export default function Planner() {
       allowUnknown: plan().settings.allowUnknown,
       maxCandidates: 20_000,
       maxPlacements: 250,
+      objective: fewestHqs() ? "fewest" : "repair",
+      preserveExisting: !fewestHqs() || plan().settings.fillPreserveExisting,
     };
   }
   async function optimizeFill() {
@@ -1033,12 +1041,17 @@ export default function Planner() {
       if (selectedBoundary()) focusBoundary(selectedBoundary()!);
       setMobilePanel(false);
       notify(
-        result.status === "resolved"
-          ? "Automatic layout ready: no two-HQ losses or open HQ centers found inside this boundary. Review before applying."
-          : result.status === "blocked"
-            ? result.reason ||
-              "Automatic fill needs valid, verified terrain before it can proceed."
-            : `Automatic layout ready: ${result.before.twoFit} → ${result.after.twoFit} loss warnings; ${result.before.openCenters} → ${result.after.openCenters} open HQ centers.`,
+        options.objective === "fewest"
+          ? result.status === "resolved"
+            ? `Fewest found: ${result.scopedIds.length} HQs with no two-HQ losses or open HQ centers inside this boundary. Review before applying.`
+            : result.reason ||
+              "No layout meeting the zero-warning requirements was found. Your plan is unchanged."
+          : result.status === "resolved"
+            ? "Automatic layout ready: no two-HQ losses or open HQ centers found inside this boundary. Review before applying."
+            : result.status === "blocked"
+              ? result.reason ||
+                "Automatic fill needs valid, verified terrain before it can proceed."
+              : `Automatic layout ready: ${result.before.twoFit} → ${result.after.twoFit} loss warnings; ${result.before.openCenters} → ${result.after.openCenters} open HQ centers.`,
       );
     } catch (error) {
       if (generation === fillGeneration)
@@ -1063,12 +1076,27 @@ export default function Planner() {
       applyingFill()
     )
       return;
+    if (
+      state.options.objective === "fewest" &&
+      (state.result.status !== "resolved" ||
+        !state.result.coverageComplete ||
+        state.result.after.twoFit ||
+        state.result.after.openCenters ||
+        state.result.after.uncertain ||
+        state.result.after.invalid)
+    ) {
+      notify(
+        "Fewest HQs requires a complete check with zero loss warnings and no open HQ centers. This preview cannot be applied.",
+      );
+      return;
+    }
     const generation = fillGeneration;
     setApplyingFill(true);
     try {
       const before = new Map(state.snapshot.placements.map((p) => [p.id, p]));
       const movedIds = new Set(state.result.movedIds),
-        addedIds = new Set(state.result.addedIds);
+        addedIds = new Set(state.result.addedIds),
+        removedIds = new Set(state.result.removedIds);
       const proposed: Plan = {
         ...state.snapshot,
         placements: state.result.placements.map((p) => {
@@ -1086,10 +1114,28 @@ export default function Planner() {
       if (invalid.length)
         throw new Error(`${invalid[0].name}: ${invalid[0].issues[0]}`);
       const after = new Map(parsed.data.placements.map((p) => [p.id, p]));
+      if ([...removedIds].some((id) => !before.has(id) || after.has(id)))
+        throw new Error(
+          "The removal list differs from the preview. Rebuild it.",
+        );
       for (const original of before.values()) {
         const next = after.get(original.id);
+        const movable =
+          original.kind === "hq" &&
+          footprintInBoundary(original, state.options.boundary);
+        if (!next) {
+          if (
+            state.options.objective !== "fewest" ||
+            state.options.preserveExisting !== false ||
+            !movable ||
+            !removedIds.has(original.id)
+          )
+            throw new Error(
+              "This existing assignment must be retained. Rebuild the preview.",
+            );
+          continue;
+        }
         if (
-          !next ||
           next.name !== original.name ||
           next.groupId !== original.groupId ||
           next.kind !== original.kind ||
@@ -1098,9 +1144,6 @@ export default function Planner() {
           throw new Error(
             "The optimizer must preserve every existing assignment. Rebuild the preview.",
           );
-        const movable =
-          original.kind === "hq" &&
-          footprintInBoundary(original, state.options.boundary);
         if (
           (!movable || !movedIds.has(original.id)) &&
           (next.x !== original.x || next.y !== original.y)
@@ -1156,6 +1199,7 @@ export default function Planner() {
       const entries = audit.entries.filter((e) => scoped.has(e.placementId));
       if (
         audit.summary.invalidCount ||
+        entries.length !== scoped.size ||
         entries.some((e) => e.confidence !== "known") ||
         entries.filter((e) => e.analysis.risk === "two-fit").length !==
           state.result.after.twoFit
@@ -1171,7 +1215,7 @@ export default function Planner() {
       )
         return;
       notify(
-        `Applied automatic layout: ${movedIds.size} HQs repositioned, ${addedIds.size} added. Undo restores the whole previous layout.`,
+        `Applied automatic layout: ${movedIds.size} HQs repositioned, ${addedIds.size} added${removedIds.size ? `, ${removedIds.size} removed` : ""}. Undo restores the whole previous layout.`,
       );
     } catch (error) {
       if (generation === fillGeneration)
@@ -2052,7 +2096,9 @@ export default function Planner() {
               <span>
                 {applyingFill()
                   ? "Rechecking the complete layout…"
-                  : "Optimizing boundary placements and gaps…"}
+                  : fewestHqs()
+                    ? "Searching for fewer HQs with zero loss warnings…"
+                    : "Optimizing boundary placements and gaps…"}
               </span>
               <button class="text-button" onClick={cancelAutomaticFill}>
                 Cancel
@@ -2070,7 +2116,9 @@ export default function Planner() {
                   <b>
                     {fill().accepted} {fill().accepted === 1 ? "HQ" : "HQs"} ·{" "}
                     {currentOptimization()
-                      ? "automatic preview"
+                      ? fewestHqs()
+                        ? "fewest-HQ preview"
+                        : "automatic preview"
                       : "preview only"}
                   </b>
                   <span>
@@ -2807,11 +2855,16 @@ export default function Planner() {
                         <Show when={b().closed}>
                           <BoundaryFillPanel
                             autoTighten={autoTighten()}
+                            fewestHqs={fewestHqs()}
+                            preserveExisting={
+                              plan().settings.fillPreserveExisting
+                            }
+                            onPreserveExisting={(value) =>
+                              setting("fillPreserveExisting", value)
+                            }
                             optimizing={optimizingFill() || applyingFill()}
                             optimization={optimizationSummary()}
-                            onAutoTighten={(value) =>
-                              setting("fillMode", value ? "auto" : "exact")
-                            }
+                            onFillMode={(value) => setting("fillMode", value)}
                             onCancelOptimization={cancelAutomaticFill}
                             strategies={registry().strategies}
                             strategyId={activeStrategy().id}

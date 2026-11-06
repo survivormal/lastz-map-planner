@@ -22,8 +22,14 @@ import {
 } from "./strategies";
 import type { TerrainLookup } from "./placement";
 import type { Placement } from "./schema";
+import { minimizeBoundaryPacking } from "./boundary-minimizer";
 
 export type BoundaryOptimizationOptions = {
+  objective?: "repair" | "fewest";
+  /** Fewest mode only; assigned inside HQs may be removed only when explicitly false. */
+  preserveExisting?: boolean;
+  /** Bounded coordinated-repacking search nodes in fewest mode. */
+  maxMinimizationNodes?: number;
   boundary: readonly Tile[];
   anchor: Tile;
   strategy: Strategy;
@@ -46,12 +52,16 @@ export type BoundaryOptimizationMetrics = {
   invalid: number;
 };
 export type BoundaryOptimizationResult = {
+  objective: "repair" | "fewest";
+  /** Every possible enemy HQ center inside the boundary was included in the scan. */
+  coverageComplete: boolean;
   /** Complete proposed plan, including all unchanged fixed placements. */
   placements: Placement[];
   before: BoundaryOptimizationMetrics;
   after: BoundaryOptimizationMetrics;
   audit: PlacementSafetyAudit;
   movedIds: string[];
+  removedIds: string[];
   addedIds: string[];
   scopedIds: string[];
   status: "resolved" | "improved" | "unchanged" | "blocked";
@@ -98,7 +108,7 @@ function compare(a: Score, b: Score): number {
  * existing HQ identities, then coordinate local moves and infill. Boundaries constrain
  * friendly destinations only; loss analysis always sees terrain and buildings outside.
  */
-export function optimizeBoundaryFill(
+function repairBoundaryFill(
   options: BoundaryOptimizationOptions,
 ): BoundaryOptimizationResult {
   StrategySchema.parse(options.strategy);
@@ -324,11 +334,14 @@ export function optimizeBoundaryFill(
       .filter((p) => p.x !== byId.get(p.id)!.x || p.y !== byId.get(p.id)!.y)
       .map((p) => p.id);
     return {
+      objective: "repair",
+      coverageComplete: !scan.truncated,
       placements,
       before,
       after,
       audit,
       movedIds,
+      removedIds: [],
       addedIds: placements.filter((p) => !originals.has(p.id)).map((p) => p.id),
       scopedIds: [...best.scoped],
       status,
@@ -834,4 +847,13 @@ export function optimizeBoundaryFill(
     before.invalid > after.invalid;
   const reason = `${after.twoFit} HQ-loss warnings and ${after.openCenters} open candidate centers remain inside this area.${outsideTerrain ? ` ${outsideTerrain} open centers require terrain outside the chosen strategy.` : ""}${truncated ? " The bounded search reached a work or area limit." : " Larger changes or support beyond the boundary may be needed."} All existing assignments were retained.`;
   return finish(improved ? "improved" : "unchanged", reason);
+}
+
+export function optimizeBoundaryFill(
+  options: BoundaryOptimizationOptions,
+): BoundaryOptimizationResult {
+  const repaired = repairBoundaryFill(options);
+  return options.objective === "fewest"
+    ? minimizeBoundaryPacking(options, repaired)
+    : repaired;
 }
